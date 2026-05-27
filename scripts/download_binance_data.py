@@ -31,7 +31,7 @@ for _stream in (sys.stdout, sys.stderr):
 # 설정 — 필요하면 여기만 바꾸면 된다
 # ─────────────────────────────────────────────────────────────
 SYMBOL = "BTCUSDT"
-INTERVALS = ["15m", "1h"]          # 메인 + 상위 필터 타임프레임
+INTERVALS = ["15m", "1h", "4h"]    # 메인 + 상위 필터 타임프레임 (4h 는 1h 메인의 HTF)
 MARKET_PATH = "futures/um"         # USDT-M 선물. 현물(spot) 아님 — 절대 바꾸지 말 것
 OUTPUT_DIR = Path("./data")        # 산출물 저장 위치
 

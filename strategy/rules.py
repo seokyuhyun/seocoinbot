@@ -25,7 +25,7 @@ class IndicatorSnapshot:
     cci_prev: float
     rsi: float
     close_15m: float
-    ema50_1h: float
+    ema50_htf: float
     atr: Optional[float] = None  # 트레일링용. 없으면 트레일링 모드 사용 불가.
 
 
@@ -67,7 +67,7 @@ class StrategyParams:
 
 def htf_filter(snap: IndicatorSnapshot) -> Side:
     """1시간봉 EMA50 필터. close > EMA50이면 롱만, 아래면 숏만 허용."""
-    return "LONG" if snap.close_15m > snap.ema50_1h else "SHORT"
+    return "LONG" if snap.close_15m > snap.ema50_htf else "SHORT"
 
 
 def cci_zero_cross_exit(side: Side, cci_now: float, cci_prev: float) -> bool:

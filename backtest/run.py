@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import argparse
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -81,33 +82,40 @@ def load_klines(path: Path) -> pd.DataFrame:
     return df
 
 
-def prepare_15m_with_indicators(
-    df15: pd.DataFrame,
-    df1h: pd.DataFrame,
+def prepare_indicators(
+    main_df: pd.DataFrame,
+    htf_df: pd.DataFrame,
     params: StrategyParams,
 ) -> pd.DataFrame:
-    """15분봉에 ADX/CCI/RSI/ATR 및 1시간봉 EMA50(시간 기반 forward-fill) 결합."""
-    out = df15.copy()
+    """메인 타임프레임에 ADX/CCI/RSI/ATR + HTF EMA50(시간 기반 backward-fill) 결합.
+
+    메인이 15m, HTF가 1h 인 v0.1 명세를 일반화해 1h/4h, 4h/1d 등에도 동일 로직
+    이 작동. EMA50 컬럼명은 ema50_htf 로 통일.
+    """
+    out = main_df.copy()
     out["adx"] = adx(out["high"], out["low"], out["close"], period=14)
     out["cci"] = cci(out["high"], out["low"], out["close"], period=20)
     out["cci_prev"] = out["cci"].shift(1)
     out["rsi"] = rsi(out["close"], period=14)
     out["atr"] = atr(out["high"], out["low"], out["close"], period=14)
 
-    # 1h EMA50 — 1h 데이터에서 계산 후 close_time 기준으로 15m 에 backward-merge.
-    # 결과: 각 15m 캔들의 close_time 이하인 가장 최근 1h close_time 의 EMA50.
-    h = df1h[["close_time", "close"]].copy()
-    h["ema50_1h"] = ema(h["close"], 50)
+    # HTF EMA50 — 각 메인 캔들의 close_time 이하인 가장 최근 HTF close_time 의 EMA50.
+    h = htf_df[["close_time", "close"]].copy()
+    h["ema50_htf"] = ema(h["close"], 50)
     h = h.rename(columns={"close_time": "ref_time"})
 
     out = pd.merge_asof(
         out.sort_values("close_time"),
-        h[["ref_time", "ema50_1h"]].sort_values("ref_time"),
+        h[["ref_time", "ema50_htf"]].sort_values("ref_time"),
         left_on="close_time",
         right_on="ref_time",
         direction="backward",
     ).drop(columns=["ref_time"])
     return out
+
+
+# 하위 호환: 기존 호출자 (grid_search.py, compare_v02.py) 위해 유지.
+prepare_15m_with_indicators = prepare_indicators
 
 
 # ─────────────────────────────────────────────────────────────
@@ -369,7 +377,7 @@ def run_backtest(df: pd.DataFrame, params: StrategyParams) -> EngineState:
 
         # 신뢰 가능한 지표가 안 잡힌 구간은 건너뜀.
         if pd.isna(row["adx"]) or pd.isna(row["cci"]) or pd.isna(row["cci_prev"]) \
-                or pd.isna(row["rsi"]) or pd.isna(row["ema50_1h"]):
+                or pd.isna(row["rsi"]) or pd.isna(row["ema50_htf"]):
             state.equity_curve.append((ts, state.equity))
             continue
 
@@ -397,7 +405,7 @@ def run_backtest(df: pd.DataFrame, params: StrategyParams) -> EngineState:
             cci_prev=float(row["cci_prev"]),
             rsi=float(row["rsi"]),
             close_15m=float(row["close"]),
-            ema50_1h=float(row["ema50_1h"]),
+            ema50_htf=float(row["ema50_htf"]),
             atr=(None if pd.isna(row["atr"]) else float(row["atr"])),
         )
         if state.position is not None:
@@ -528,19 +536,37 @@ def dump_artifacts(state: EngineState, suffix: str) -> None:
 # ─────────────────────────────────────────────────────────────
 
 
+def parse_args() -> argparse.Namespace:
+    ap = argparse.ArgumentParser(description="BTCUSDT 백테스트 — strategy v0.1 검증")
+    ap.add_argument("--main-tf", default="15m",
+                    help="메인 타임프레임. data/BTCUSDT-<TF>.csv 가 있어야 함 (예: 15m, 1h, 4h)")
+    ap.add_argument("--htf", default="1h",
+                    help="상위 필터 타임프레임 (예: 1h, 4h, 1d)")
+    return ap.parse_args()
+
+
 def main() -> None:
     # Windows PowerShell cp949 호환 출력
     for s in (sys.stdout, sys.stderr):
         if hasattr(s, "reconfigure"):
             s.reconfigure(encoding="utf-8")
 
-    df15 = load_klines(DATA_DIR / "BTCUSDT-15m.csv")
-    df1h = load_klines(DATA_DIR / "BTCUSDT-1h.csv")
-    print(f"15m 캔들 {len(df15):,}개  ({df15['close_time'].iloc[0]} ~ {df15['close_time'].iloc[-1]})")
-    print(f"1h  캔들 {len(df1h):,}개")
+    args = parse_args()
+    main_path = DATA_DIR / f"BTCUSDT-{args.main_tf}.csv"
+    htf_path = DATA_DIR / f"BTCUSDT-{args.htf}.csv"
+    if not main_path.exists() or not htf_path.exists():
+        print(f"필요 파일 없음: {main_path} 또는 {htf_path}", file=sys.stderr)
+        print("scripts/download_binance_data.py 실행 후 다시 시도하세요.", file=sys.stderr)
+        sys.exit(2)
+
+    df_main = load_klines(main_path)
+    df_htf = load_klines(htf_path)
+    print(f"메인 {args.main_tf} 캔들 {len(df_main):,}개  "
+          f"({df_main['close_time'].iloc[0]} ~ {df_main['close_time'].iloc[-1]})")
+    print(f"HTF  {args.htf} 캔들 {len(df_htf):,}개")
 
     params = StrategyParams()
-    prepared = prepare_15m_with_indicators(df15, df1h, params)
+    prepared = prepare_indicators(df_main, df_htf, params)
 
     # IS/OOS 분할 — 시간순으로 70:30
     split = int(len(prepared) * IN_SAMPLE_RATIO)
@@ -554,13 +580,13 @@ def main() -> None:
     is_state = run_backtest(is_df, params)
     is_report = summarize(is_state, "IN-SAMPLE", is_df["close_time"].iloc[0], is_df["close_time"].iloc[-1])
     print_report(is_report)
-    dump_artifacts(is_state, "is")
+    dump_artifacts(is_state, f"{args.main_tf}_is")
 
     print("\n[OOS] 시뮬레이션 진행 중...")
     oos_state = run_backtest(oos_df, params)
     oos_report = summarize(oos_state, "OUT-OF-SAMPLE", oos_df["close_time"].iloc[0], oos_df["close_time"].iloc[-1])
     print_report(oos_report)
-    dump_artifacts(oos_state, "oos")
+    dump_artifacts(oos_state, f"{args.main_tf}_oos")
 
     print(f"\n산출물: {RESULTS_DIR}")
     print("  equity_{is,oos}.csv  — 시점별 자본곡선")
