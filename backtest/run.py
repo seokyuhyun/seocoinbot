@@ -29,7 +29,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from strategy.indicators import adx, cci, ema, rsi  # noqa: E402
+from strategy.indicators import adx, atr, cci, ema, rsi  # noqa: E402
 from strategy.rules import (  # noqa: E402
     IndicatorSnapshot,
     StrategyParams,
@@ -86,12 +86,13 @@ def prepare_15m_with_indicators(
     df1h: pd.DataFrame,
     params: StrategyParams,
 ) -> pd.DataFrame:
-    """15분봉에 ADX/CCI/RSI 및 1시간봉 EMA50(시간 기반 forward-fill) 결합."""
+    """15분봉에 ADX/CCI/RSI/ATR 및 1시간봉 EMA50(시간 기반 forward-fill) 결합."""
     out = df15.copy()
     out["adx"] = adx(out["high"], out["low"], out["close"], period=14)
     out["cci"] = cci(out["high"], out["low"], out["close"], period=20)
     out["cci_prev"] = out["cci"].shift(1)
     out["rsi"] = rsi(out["close"], period=14)
+    out["atr"] = atr(out["high"], out["low"], out["close"], period=14)
 
     # 1h EMA50 — 1h 데이터에서 계산 후 close_time 기준으로 15m 에 backward-merge.
     # 결과: 각 15m 캔들의 close_time 이하인 가장 최근 1h close_time 의 EMA50.
@@ -128,6 +129,9 @@ class Trade:
     remaining_pct: float = 1.0     # 초기 사이즈 대비 남은 비율
     fills: list = field(default_factory=list)
     # fills 항목: (exit_time, exit_price_eff, size_pct, reason, gross_pnl, fee, funding)
+
+    # exit_mode == "trailing" 전용
+    trail_active: bool = False     # 1R 도달 후 트레일링 모드 진입 여부
 
 
 @dataclass
@@ -276,8 +280,14 @@ def _apply_funding(state: EngineState, row: pd.Series) -> None:
         state.total_funding += cost
 
 
-def _check_intrabar_exits(state: EngineState, row: pd.Series, idx: int) -> bool:
-    """캔들 H/L 로 SL/TP 트리거를 확인. 청산 발생 시 True."""
+def _check_intrabar_exits(state: EngineState, row: pd.Series, idx: int, p: StrategyParams) -> bool:
+    """캔들 H/L 로 SL/TP 트리거를 확인. 청산 발생 시 True.
+
+    exit_mode 에 따라:
+      - partial_tp: SL 우선 → TP1(30%) → TP2(30%) 부분 익절 (명세서 4)
+      - trailing:   SL 우선 → 1R 도달 시 SL 을 진입가로 이동 (BE)
+                    실제 트레일링 갱신은 캔들 close 시점에서 수행
+    """
     pos = state.position
     if pos is None:
         return False
@@ -295,9 +305,19 @@ def _check_intrabar_exits(state: EngineState, row: pd.Series, idx: int) -> bool:
 
     if sl_touch:
         # 명세 4절: SL 과 TP 가 같은 캔들에서 동시에 닿으면 SL 우선.
-        _close_remaining(state, pos.stop_price, "STOP_LOSS", ts, idx)
+        reason = "TRAIL_STOP" if pos.trail_active else "STOP_LOSS"
+        _close_remaining(state, pos.stop_price, reason, ts, idx)
         return True
 
+    if p.exit_mode == "trailing":
+        # 트레일링 모드: TP1 도달 = BE 이동 + 트레일링 활성화 (부분익절 없음)
+        if tp1_touch and not pos.trail_active:
+            pos.stop_price = pos.entry_price       # breakeven
+            pos.trail_active = True
+            pos.tp1_done = True
+        return False
+
+    # partial_tp (기본)
     if tp1_touch:
         _close_partial(state, pos.tp1_price, 0.3, "TP1_1R", ts)
         pos.tp1_done = True
@@ -305,13 +325,36 @@ def _check_intrabar_exits(state: EngineState, row: pd.Series, idx: int) -> bool:
         _close_partial(state, pos.tp2_price, 0.3, "TP2_2R", ts)
         pos.tp2_done = True
     if pos.remaining_pct <= 1e-9:
-        # 전부 익절된 케이스 (TP1 + TP2 = 0.6; 보통 안 일어남, 안전망)
         state.closed_trades.append(pos)
         state.position = None
         state.last_exit_idx = idx
         state.consecutive_stops = 0
         return True
     return False
+
+
+def _update_trailing_stop(state: EngineState, row: pd.Series, p: StrategyParams) -> None:
+    """exit_mode == trailing 이고 트레일링 활성화된 포지션의 손절을 갱신.
+
+    매 캔들 close 에서 close ± trail_atr_mult × ATR 을 후보로 두고,
+    롱이면 max(현재 stop, 후보) / 숏이면 min(현재 stop, 후보) 로만 이동.
+    한 번 올린 손절은 내리지 않는다 (이동·해제 금지 — 설계서 3절).
+    """
+    pos = state.position
+    if pos is None or p.exit_mode != "trailing" or not pos.trail_active:
+        return
+    a = row["atr"]
+    if pd.isna(a):
+        return
+    c = row["close"]
+    if pos.side == "LONG":
+        candidate = c - p.trail_atr_mult * a
+        if candidate > pos.stop_price:
+            pos.stop_price = candidate
+    else:
+        candidate = c + p.trail_atr_mult * a
+        if candidate < pos.stop_price:
+            pos.stop_price = candidate
 
 
 def run_backtest(df: pd.DataFrame, params: StrategyParams) -> EngineState:
@@ -345,7 +388,7 @@ def run_backtest(df: pd.DataFrame, params: StrategyParams) -> EngineState:
         _apply_funding(state, row)
 
         # 3) 인트라바 SL/TP
-        _check_intrabar_exits(state, row, i)
+        _check_intrabar_exits(state, row, i, params)
 
         # 4) 캔들 종가에서 신호 평가 → 다음 캔들 OPEN 에서 실행하도록 펜딩
         snap = IndicatorSnapshot(
@@ -355,11 +398,17 @@ def run_backtest(df: pd.DataFrame, params: StrategyParams) -> EngineState:
             rsi=float(row["rsi"]),
             close_15m=float(row["close"]),
             ema50_1h=float(row["ema50_1h"]),
+            atr=(None if pd.isna(row["atr"]) else float(row["atr"])),
         )
         if state.position is not None:
+            # 트레일링 모드면 캔들 close 에서 스탑 갱신
+            _update_trailing_stop(state, row, params)
             pos = state.position
-            # 청산 트리거: CCI 0선 반대돌파 또는 반대 방향 진입 신호
-            if cci_zero_cross_exit(pos.side, snap.cci_now, snap.cci_prev):
+            # CCI 0선 반대돌파 청산은 partial_tp 모드 전용. 트레일링은 추세가
+            # 살아 있는 한 끝까지 가져가야 의미가 있으므로 사용 안 함.
+            if params.exit_mode == "partial_tp" and cci_zero_cross_exit(
+                pos.side, snap.cci_now, snap.cci_prev
+            ):
                 state.pending_exit_reason = "CCI_ZERO_CROSS"
             elif pos.side == "LONG" and short_entry_signal(snap, params):
                 state.pending_exit_reason = "OPPOSITE_SIGNAL"

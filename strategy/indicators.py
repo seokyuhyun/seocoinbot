@@ -32,6 +32,20 @@ def cci(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 20) -> 
     return (tp - sma) / (0.015 * mad)
 
 
+def atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    """평균진폭. Wilder 평활. 트레일링 스탑 거리 산출에 사용."""
+    prev_close = close.shift(1)
+    tr = pd.concat(
+        [
+            (high - low),
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+    return tr.ewm(alpha=1.0 / period, adjust=False).mean()
+
+
 def adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
     prev_close = close.shift(1)
     tr = pd.concat(
