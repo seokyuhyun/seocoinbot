@@ -313,7 +313,14 @@ class SRTParams:
     rsi_signal_period: int = 14
     trix_period: int = 10
     swing_lookback: int = 10
-    rr: float = 2.0   # 익절 = 손절폭의 RR 배수
+    rr: float = 2.0          # 익절 = 손절폭의 RR 배수
+    # 튜닝 옵션
+    trix_required: bool = True   # False 면 TRIX 부호 무시
+    # 과매수/과매도 zone 제약 — 롱은 K 가 이 값 이하에서 cross 일 때만, 숏은 그 반대.
+    # None 이면 무제한.
+    stoch_long_max_k: Optional[float] = None
+    stoch_short_min_k: Optional[float] = None
+    use_trail_be: bool = False   # 1R 도달 시 손절을 진입가(BE)로 이동
 
 
 class SRTStrategy:
@@ -372,18 +379,28 @@ class SRTStrategy:
         rsi_up_cross = rp <= rsp and r_ > rs
         rsi_dn_cross = rp >= rsp and r_ < rs
 
-        if stoch_up_cross and rsi_up_cross and t < 0:
+        trix_ok_long = (not self.p.trix_required) or t < 0
+        trix_ok_short = (not self.p.trix_required) or t > 0
+        zone_ok_long = (self.p.stoch_long_max_k is None) or k <= self.p.stoch_long_max_k
+        zone_ok_short = (self.p.stoch_short_min_k is None) or k >= self.p.stoch_short_min_k
+
+        if stoch_up_cross and rsi_up_cross and trix_ok_long and zone_ok_long:
             stop = float(row["s_recent_low"])
             if stop >= close:
                 return None
-            tp = close + (close - stop) * self.p.rr
-            return Signal("LONG", stop, tp)
-        if stoch_dn_cross and rsi_dn_cross and t > 0:
+            risk = close - stop
+            if self.p.use_trail_be:
+                # tp1=1R (50% 익절+BE 이동), tp2=RR*R (잔여 50% 익절)
+                return Signal("LONG", stop, close + risk, close + risk * self.p.rr)
+            return Signal("LONG", stop, close + risk * self.p.rr)
+        if stoch_dn_cross and rsi_dn_cross and trix_ok_short and zone_ok_short:
             stop = float(row["s_recent_high"])
             if stop <= close:
                 return None
-            tp = close - (stop - close) * self.p.rr
-            return Signal("SHORT", stop, tp)
+            risk = stop - close
+            if self.p.use_trail_be:
+                return Signal("SHORT", stop, close - risk, close - risk * self.p.rr)
+            return Signal("SHORT", stop, close - risk * self.p.rr)
         return None
 
 
