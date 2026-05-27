@@ -38,6 +38,8 @@ class StrategyParams:
     rsi_short_min: float = 30.0
     rsi_short_max: float = 50.0
     stop_loss_pct: float = 0.01  # 진입가 대비 ±1.0% (설계서 2.7)
+    tp1_r_multiple: float = 1.0  # 1R 부분익절 (설계서 2.7)
+    tp2_r_multiple: float = 2.0  # 2R 부분익절
 
 
 def htf_filter(snap: IndicatorSnapshot) -> Side:

@@ -244,16 +244,10 @@ def _open_position(
         if side == "LONG"
         else fill_px * (1.0 + params.stop_loss_pct)
     )
-    tp1 = (
-        fill_px * (1.0 + params.stop_loss_pct)  # 1R
-        if side == "LONG"
-        else fill_px * (1.0 - params.stop_loss_pct)
-    )
-    tp2 = (
-        fill_px * (1.0 + 2 * params.stop_loss_pct)  # 2R
-        if side == "LONG"
-        else fill_px * (1.0 - 2 * params.stop_loss_pct)
-    )
+    r1 = params.stop_loss_pct * params.tp1_r_multiple
+    r2 = params.stop_loss_pct * params.tp2_r_multiple
+    tp1 = fill_px * (1.0 + r1) if side == "LONG" else fill_px * (1.0 - r1)
+    tp2 = fill_px * (1.0 + r2) if side == "LONG" else fill_px * (1.0 - r2)
     state.position = Trade(
         side=side,
         entry_time=ts,
