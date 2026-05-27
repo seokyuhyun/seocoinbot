@@ -216,3 +216,27 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ─────────────────────────────────────────────────────────────
+# Trading bot project (infra_guide.md)
+# ─────────────────────────────────────────────────────────────
+
+# 키·시크릿 — 절대 레포에 올리지 않음
+*.key
+*.pem
+config/secrets*
+
+# 백테스트 데이터 (download 스크립트로 재생산 가능)
+data/
+
+# 봇 런타임 상태
+state/
+*.state.json
+
+# 로그 디렉토리
+logs/
+
+# OS / 에디터
+.DS_Store
+.idea/
+.vscode/
