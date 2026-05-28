@@ -1,2 +1,10 @@
 pandas>=2.2,<3.0
 numpy>=1.26,<3.0
+
+# 백테스트·다운로드 (breakout_v2 / orbc_v4 / scripts/download_binance_data)
+requests>=2.31,<3.0
+
+# 실시간 봇 (bot/realtime)
+websockets>=12.0,<17.0
+httpx>=0.27,<1.0
+python-dotenv>=1.0,<2.0
