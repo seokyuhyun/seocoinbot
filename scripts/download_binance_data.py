@@ -25,7 +25,7 @@ from pathlib import Path
 # 표준 출력 스트림을 UTF-8로 재설정한다. Python 3.7+ 필요.
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8")
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 # ─────────────────────────────────────────────────────────────
 # 설정 — 필요하면 여기만 바꾸면 된다

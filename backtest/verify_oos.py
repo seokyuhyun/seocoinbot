@@ -45,7 +45,7 @@ HTF_TF = "4h"
 def main() -> None:
     for s in (sys.stdout, sys.stderr):
         if hasattr(s, "reconfigure"):
-            s.reconfigure(encoding="utf-8")
+            s.reconfigure(encoding="utf-8", errors="replace")
 
     df_main = load_klines(DATA_DIR / f"BTCUSDT-{MAIN_TF}.csv")
     df_htf = load_klines(DATA_DIR / f"BTCUSDT-{HTF_TF}.csv")

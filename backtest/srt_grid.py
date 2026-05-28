@@ -42,7 +42,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     for s in (sys.stdout, sys.stderr):
         if hasattr(s, "reconfigure"):
-            s.reconfigure(encoding="utf-8")
+            s.reconfigure(encoding="utf-8", errors="replace")
 
     args = parse_args()
     df = load_klines(DATA_DIR / f"BTCUSDT-{args.main_tf}.csv")

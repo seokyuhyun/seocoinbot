@@ -58,7 +58,7 @@ def make_params(adx_t: float, cci_abs: float, stop: float, tp: tuple) -> Strateg
 def main() -> None:
     for s in (sys.stdout, sys.stderr):
         if hasattr(s, "reconfigure"):
-            s.reconfigure(encoding="utf-8")
+            s.reconfigure(encoding="utf-8", errors="replace")
 
     df15 = load_klines(DATA_DIR / "BTCUSDT-15m.csv")
     df1h = load_klines(DATA_DIR / "BTCUSDT-1h.csv")

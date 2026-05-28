@@ -43,7 +43,7 @@ C1 = SRTParams(trix_required=False, rr=1.5, swing_lookback=20)
 def main() -> None:
     for s in (sys.stdout, sys.stderr):
         if hasattr(s, "reconfigure"):
-            s.reconfigure(encoding="utf-8")
+            s.reconfigure(encoding="utf-8", errors="replace")
 
     df = load_klines(DATA_DIR / "BTCUSDT-1h.csv")
     split = int(len(df) * IN_SAMPLE_RATIO)

@@ -63,7 +63,7 @@ def run_fold(df: pd.DataFrame, params: SRTParams) -> dict:
 def main() -> None:
     for s in (sys.stdout, sys.stderr):
         if hasattr(s, "reconfigure"):
-            s.reconfigure(encoding="utf-8")
+            s.reconfigure(encoding="utf-8", errors="replace")
 
     df = load_klines(DATA_DIR / "BTCUSDT-1h.csv")
     split = int(len(df) * IN_SAMPLE_RATIO)

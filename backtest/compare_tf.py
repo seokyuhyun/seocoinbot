@@ -42,7 +42,7 @@ def main() -> None:
     import argparse
     for s in (sys.stdout, sys.stderr):
         if hasattr(s, "reconfigure"):
-            s.reconfigure(encoding="utf-8")
+            s.reconfigure(encoding="utf-8", errors="replace")
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--main-tf", default="1h")
