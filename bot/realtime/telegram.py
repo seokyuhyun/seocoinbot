@@ -54,3 +54,53 @@ async def send_plain(text: str) -> None:
                 await client.post(url, json={"chat_id": chat_id, "text": text})
             except Exception as e:
                 log.error("Telegram(plain) %s 에러: %s", chat_id, e)
+
+
+async def send_to(chat_id: str, text: str, parse_mode: str = "Markdown") -> bool:
+    """단일 chat_id 에 전송 (명령어 응답용)."""
+    if not TELEGRAM_BOT_TOKEN:
+        return False
+    url = f"{_TELEGRAM_API}/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            r = await client.post(url, json={
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": parse_mode,
+                "disable_web_page_preview": True,
+            })
+            return r.status_code == 200
+        except Exception as e:
+            log.error("Telegram send_to %s 에러: %s", chat_id, e)
+            return False
+
+
+async def get_updates(offset: int, timeout: int = 25) -> list[dict]:
+    """long-polling getUpdates. offset = next update_id 시작점."""
+    if not TELEGRAM_BOT_TOKEN:
+        return []
+    url = f"{_TELEGRAM_API}/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
+    # 클라이언트 timeout 은 server timeout 보다 길게
+    async with httpx.AsyncClient(timeout=timeout + 10) as client:
+        try:
+            r = await client.get(
+                url,
+                params={
+                    "offset": offset,
+                    "timeout": timeout,
+                    "allowed_updates": '["message"]',
+                },
+            )
+            if r.status_code != 200:
+                log.warning("getUpdates HTTP %s", r.status_code)
+                return []
+            data = r.json()
+            if not data.get("ok"):
+                log.warning("getUpdates not ok: %s", data)
+                return []
+            return data.get("result", []) or []
+        except httpx.ReadTimeout:
+            return []
+        except Exception as e:
+            log.error("getUpdates 에러: %s", e)
+            return []

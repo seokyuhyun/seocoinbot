@@ -16,6 +16,7 @@ import datetime as dt
 import logging
 from typing import Iterable
 
+from .commands import BotState
 from .config import FUNDING_THRESHOLD, LEVERAGE
 from .levels import (
     calculate_cascade_levels,
@@ -35,11 +36,13 @@ class SignalHandler:
         self,
         symbols: Iterable[str],
         paper_trader: PaperTrader,
+        state: BotState,
         funding_threshold: float = FUNDING_THRESHOLD,
         leverage: int = LEVERAGE,
     ) -> None:
         self.symbols = set(symbols)
         self.paper = paper_trader
+        self.state = state
         self.threshold = funding_threshold
         self.leverage = leverage
         self._alerted_funding_period: dict[str, int] = {}
@@ -77,10 +80,12 @@ class SignalHandler:
                 stats = self.paper.stats()
                 await tg_send(format_close_alert(pos, reason, stats))
 
-        # 2) 캐스케이드 detector 에 가격 스냅 공급
+        # 2) 캐스케이드 detector 에 가격 스냅 공급 (paused 여부 무관)
         self.cascade.on_mark(sym, mark, ts_now)
 
-        # 3) 펀딩 spike (top-N 만)
+        # 3) 새 시그널 — paused 면 발사 안 함
+        if self.state.paused:
+            return
         if sym not in self.symbols:
             return
         if abs(funding) < self.threshold:
@@ -116,8 +121,11 @@ class SignalHandler:
 
     # ── forceOrder 스트림 핸들러 ───────────────────────────
     async def on_liquidation_message(self, msg) -> None:
+        # detector 윈도우는 paused 여부와 무관하게 항상 업데이트 (시그널 발사만 차단)
         signal = self.cascade.on_force_order(msg)
         if signal is None:
+            return
+        if self.state.paused:
             return
 
         ts_now = dt.datetime.now(dt.timezone.utc)
