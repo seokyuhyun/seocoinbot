@@ -45,6 +45,10 @@ class PaperPosition:
     sl_pct: float
     funding_at_signal: float
     tier: str
+    # 시그널 출처: "funding_spike" | "liquidation_cascade" | ...
+    signal_type: str = "funding_spike"
+    # 시그널별 raw context (cascade: 5분 청산금액·방향·가격변화 등)
+    signal_meta: str = ""
 
     # state
     tps_hit: list[bool] = field(default_factory=lambda: [False, False, False])
@@ -132,6 +136,7 @@ class PaperTrader:
 
     CSV_FIELDS = [
         "trade_id", "symbol", "side", "leverage",
+        "signal_type", "signal_meta",
         "entry_time", "entry_price",
         "tp1", "tp2", "tp3", "sl",
         "tp1_pct", "tp2_pct", "tp3_pct", "sl_pct",
@@ -192,6 +197,8 @@ class PaperTrader:
         leverage: int,
         funding: float,
         ts: dt.datetime,
+        signal_type: str = "funding_spike",
+        signal_meta: str = "",
     ) -> Optional[PaperPosition]:
         """중복 진입 차단, 최대 동시 보유 제한."""
         if symbol in self.open_positions:
@@ -212,10 +219,12 @@ class PaperTrader:
             tp3_pct=levels["tp3_pct"], sl_pct=levels["sl_pct"],
             funding_at_signal=funding,
             tier=levels["tier"],
+            signal_type=signal_type,
+            signal_meta=signal_meta,
         )
         self.open_positions[symbol] = pos
-        log.info("[paper] OPEN %s %s @ %g (id=%s)",
-                 symbol, side.upper(), entry_price, pos.trade_id)
+        log.info("[paper] OPEN %s %s @ %g (id=%s, %s)",
+                 symbol, side.upper(), entry_price, pos.trade_id, signal_type)
         return pos
 
     def on_mark(self, symbol: str, mark: float, ts: dt.datetime) -> list[tuple]:
@@ -282,6 +291,8 @@ class PaperTrader:
                     "symbol": pos.symbol,
                     "side": pos.side,
                     "leverage": pos.leverage,
+                    "signal_type": pos.signal_type,
+                    "signal_meta": pos.signal_meta,
                     "entry_time": pos.entry_time.isoformat(),
                     "entry_price": pos.entry_price,
                     "tp1": pos.tp1, "tp2": pos.tp2, "tp3": pos.tp3, "sl": pos.sl,

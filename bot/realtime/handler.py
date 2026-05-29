@@ -1,8 +1,13 @@
-"""SignalHandler — !markPrice@arr@1s 단일 스트림을 받아:
-1) 보유 paper position 마다 mark 으로 TP/SL/TIME_STOP 체크 → 청산 알림
-2) 펀딩비 spike 감지 (top-N 심볼만) → 시그널 알림 + paper 진입
+"""SignalHandler — markPrice + forceOrder 두 스트림을 모두 받는 핸들러.
 
-펀딩비 spike 중복 방지: 같은 정산 기간(8h) 내 같은 심볼 1회만.
+markPrice 스트림 (매 1초):
+  1) 보유 paper position → TP/SL/TIME_STOP 체크 → 청산 알림
+  2) 캐스케이드 detector 에 가격 스냅 공급
+  3) 펀딩비 spike 감지 → 시그널 알림 + paper 진입
+
+forceOrder 스트림 (이벤트 기반):
+  1) 캐스케이드 detector 에 청산 이벤트 공급
+  2) 캐스케이드 트리거 시 → 시그널 알림 + paper 진입
 """
 
 from __future__ import annotations
@@ -12,7 +17,13 @@ import logging
 from typing import Iterable
 
 from .config import FUNDING_THRESHOLD, LEVERAGE
-from .levels import calculate_levels, format_signal
+from .levels import (
+    calculate_cascade_levels,
+    calculate_levels,
+    format_cascade_signal,
+    format_signal,
+)
+from .liquidation_alerts import CascadeDetector
 from .paper_trader import PaperTrader, format_close_alert
 from .telegram import send as tg_send
 
@@ -31,17 +42,18 @@ class SignalHandler:
         self.paper = paper_trader
         self.threshold = funding_threshold
         self.leverage = leverage
-        # 정산 기간(=next_funding_ts) 별로 이미 알림 보낸 심볼 기록
-        self._alerted_for_period: dict[str, int] = {}
+        self._alerted_funding_period: dict[str, int] = {}
+        self.cascade = CascadeDetector(symbols)
 
-    async def on_message(self, msg) -> None:
+    # ── markPrice 스트림 핸들러 ────────────────────────────
+    async def on_mark_message(self, msg) -> None:
         if isinstance(msg, list):
             for item in msg:
-                await self._handle(item)
+                await self._handle_mark(item)
         elif isinstance(msg, dict):
-            await self._handle(msg)
+            await self._handle_mark(msg)
 
-    async def _handle(self, item: dict) -> None:
+    async def _handle_mark(self, item: dict) -> None:
         sym = item.get("s")
         if not sym:
             return
@@ -56,37 +68,36 @@ class SignalHandler:
 
         ts_now = dt.datetime.now(dt.timezone.utc)
 
-        # 1) Paper position 업데이트 — 보유 중인 심볼만
+        # 1) paper position 업데이트
         events = self.paper.on_mark(sym, mark, ts_now)
         for ev in events:
             if ev[0] == "close":
                 _, reason, _ = ev
-                # 청산된 position 은 history 마지막 원소
                 pos = self.paper.history[-1]
                 stats = self.paper.stats()
-                text = format_close_alert(pos, reason, stats)
-                await tg_send(text)
+                await tg_send(format_close_alert(pos, reason, stats))
 
-        # 2) 펀딩 spike 감지 (top-N 심볼만)
+        # 2) 캐스케이드 detector 에 가격 스냅 공급
+        self.cascade.on_mark(sym, mark, ts_now)
+
+        # 3) 펀딩 spike (top-N 만)
         if sym not in self.symbols:
             return
         if abs(funding) < self.threshold:
             return
-        if self._alerted_for_period.get(sym) == next_ts:
+        if self._alerted_funding_period.get(sym) == next_ts:
             return
 
-        # 진입 방향: 펀딩 양수 (롱 과열) → SHORT, 음수 → LONG
         side = "short" if funding > 0 else "long"
         levels = calculate_levels(mark, side, funding)
-
-        # paper 진입 시도
         pos = self.paper.open_position(
             symbol=sym, side=side, entry_price=mark, levels=levels,
             leverage=self.leverage, funding=funding, ts=ts_now,
+            signal_type="funding_spike",
+            signal_meta=f"funding={funding*100:+.4f}%",
         )
         opened = pos is not None
 
-        # 다음 정산까지 남은 분
         next_dt = dt.datetime.fromtimestamp(next_ts / 1000, tz=dt.timezone.utc)
         minutes_to = max(0, int((next_dt - ts_now).total_seconds() // 60))
 
@@ -96,11 +107,55 @@ class SignalHandler:
             minutes_to_funding=minutes_to,
         )
         if not opened:
-            text += "\n_(paper: 이미 보유 중 또는 동시보유 한도 도달 — 가상 진입 스킵)_"
+            text += "\n_(paper: 이미 보유 중 또는 동시보유 한도 도달)_"
 
-        log.info("[SIGNAL] %s %s entry=%g funding=%+.4f%% (paper=%s)",
+        log.info("[FUNDING] %s %s entry=%g funding=%+.4f%% (paper=%s)",
                  sym, side.upper(), mark, funding * 100, opened)
         await tg_send(text)
+        self._alerted_funding_period[sym] = next_ts
 
-        # 중복 방지 마킹
-        self._alerted_for_period[sym] = next_ts
+    # ── forceOrder 스트림 핸들러 ───────────────────────────
+    async def on_liquidation_message(self, msg) -> None:
+        signal = self.cascade.on_force_order(msg)
+        if signal is None:
+            return
+
+        ts_now = dt.datetime.now(dt.timezone.utc)
+        sym = signal["symbol"]
+        side = signal["side"]
+        mark = signal["mark"]
+        total_usd = signal["total_liq_usd"]
+
+        levels = calculate_cascade_levels(mark, side, total_usd)
+
+        # paper 진입
+        meta = (
+            f"liq={total_usd:.0f}USD,"
+            f"lop={signal['lopsided_side']}{signal['lopsided_pct']:.0f}%,"
+            f"dp={signal['price_change_pct']:+.2f}%"
+        )
+        pos = self.paper.open_position(
+            symbol=sym, side=side, entry_price=mark, levels=levels,
+            leverage=self.leverage, funding=0.0, ts=ts_now,
+            signal_type="liquidation_cascade",
+            signal_meta=meta,
+        )
+        opened = pos is not None
+
+        text = format_cascade_signal(
+            symbol=sym, side=side, entry=mark, levels=levels,
+            leverage=self.leverage,
+            total_liq_usd=total_usd,
+            lopsided_pct=signal["lopsided_pct"],
+            lopsided_side=signal["lopsided_side"],
+            price_change_pct=signal["price_change_pct"],
+            window_minutes=signal["window_minutes"],
+        )
+        if not opened:
+            text += "\n_(paper: 이미 보유 중 또는 동시보유 한도 도달)_"
+
+        log.info("[CASCADE] %s %s entry=%g liq=$%g %s%.0f%% Δp=%+.2f%% (paper=%s)",
+                 sym, side.upper(), mark, total_usd,
+                 signal["lopsided_side"], signal["lopsided_pct"],
+                 signal["price_change_pct"], opened)
+        await tg_send(text)

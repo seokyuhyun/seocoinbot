@@ -1,11 +1,7 @@
-"""실시간 봇 진입점 — Signal handler + Paper trader.
+"""실시간 봇 진입점 — markPrice + forceOrder 듀얼 스트림.
 
 실행:
     python -m bot.realtime.main
-
-요구사항:
-    .env: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_IDS
-    pip: websockets, httpx, python-dotenv
 """
 
 from __future__ import annotations
@@ -14,7 +10,6 @@ import asyncio
 import logging
 import sys
 
-# UTF-8 출력 (Windows 콘솔 surrogate 회피)
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8", errors="replace")
@@ -41,12 +36,29 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-# 보안: httpx 가 INFO 에서 전체 URL (= 토큰 포함) 출력
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("websockets").setLevel(logging.WARNING)
 
 log = logging.getLogger("seocoinbot.realtime")
+
+
+async def _run_mark_stream(handler: SignalHandler) -> None:
+    log.info("WebSocket 구독: !markPrice@arr@1s (펀딩 spike + paper 모니터링)")
+    async for msg in stream("!markPrice@arr@1s"):
+        try:
+            await handler.on_mark_message(msg)
+        except Exception as e:
+            log.exception("mark handler error: %s", e)
+
+
+async def _run_liquidation_stream(handler: SignalHandler) -> None:
+    log.info("WebSocket 구독: !forceOrder@arr (청산 캐스케이드)")
+    async for msg in stream("!forceOrder@arr"):
+        try:
+            await handler.on_liquidation_message(msg)
+        except Exception as e:
+            log.exception("liquidation handler error: %s", e)
 
 
 async def main() -> None:
@@ -61,7 +73,6 @@ async def main() -> None:
     log.info("상위 %d USDT 무기한 조회 중...", TOP_N_SYMBOLS)
     symbols = await get_top_usdt_perps(TOP_N_SYMBOLS)
 
-    # Paper trader 초기화 (기존 CSV 있으면 통계 로드)
     paper = PaperTrader(
         csv_path=PAPER_TRADES_CSV,
         max_concurrent=MAX_CONCURRENT_PAPER,
@@ -77,19 +88,21 @@ async def main() -> None:
         f"기본 레버리지: `{LEVERAGE}x`\n"
         f"동시 보유: `{MAX_CONCURRENT_PAPER}` 포지션\n"
         f"시간 손절: `{PAPER_TIME_STOP_HOURS}h`\n"
-        f"━━ 누적 통계 (재시작 후 복원) ━━\n"
+        f"━━ 시그널 종류 ━━\n"
+        "1. 펀딩비 spike\n"
+        "2. 청산 캐스케이드 반발\n"
+        f"━━ 누적 통계 ━━\n"
         f"기존 거래: `{pre_stats['total']}`건\n"
         f"승률: `{pre_stats['win_rate']:.1f}%`\n"
     )
 
     handler = SignalHandler(symbols, paper, FUNDING_THRESHOLD, LEVERAGE)
 
-    log.info("WebSocket 구독 시작: !markPrice@arr@1s")
-    async for msg in stream("!markPrice@arr@1s"):
-        try:
-            await handler.on_message(msg)
-        except Exception as e:
-            log.exception("handler error: %s", e)
+    # 두 스트림 동시 실행 — 하나 끊겨도 다른 하나 계속 (binance_ws 가 재연결)
+    await asyncio.gather(
+        _run_mark_stream(handler),
+        _run_liquidation_stream(handler),
+    )
 
 
 if __name__ == "__main__":
