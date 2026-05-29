@@ -104,7 +104,7 @@ async def main() -> None:
         f"기존 거래: `{pre_stats['total']}`건\n"
         f"승률: `{pre_stats['win_rate']:.1f}%`\n"
         f"━━━━━━━━━━━━\n"
-        f"명령어: `/help`"
+        f"명령어: `/help2`"
     )
 
     handler = SignalHandler(symbols, paper, state, FUNDING_THRESHOLD, LEVERAGE)

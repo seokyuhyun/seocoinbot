@@ -1,12 +1,14 @@
 """Telegram 명령어 폴링·라우팅.
 
-지원 명령:
-- /help, /start     도움말
-- /status           현재 상태 (가동시간, 오픈 포지션)
-- /summary          누적 통계 (승률, PF, 시그널 타입별)
-- /pause            새 시그널 발사 일시정지 (기존 포지션은 계속 모니터링)
-- /resume           시그널 재개
-- /stop             봇 종료 (graceful)
+지원 명령 (모두 2 suffix — 다른 봇과 명령 분리):
+- /help2, /start2   도움말
+- /status2          현재 상태 (가동시간, 오픈 포지션)
+- /summary2         누적 통계 (승률, PF, 시그널 타입별)
+- /pause2           새 시그널 발사 일시정지 (기존 포지션은 계속 모니터링)
+- /resume2          시그널 재개
+- /stop2            봇 종료 (graceful)
+
+/start (텔레그램 'Start' 버튼이 자동 전송) 만 호환을 위해 그대로 살림 — help 표시.
 
 인증: TELEGRAM_CHAT_IDS 에 등록된 chat 만 응답.
 """
@@ -40,37 +42,38 @@ class CommandRouter:
 
     async def handle(self, cmd: str, args: str, sender_chat_id: str) -> str:
         cmd = cmd.lower()
-        if cmd in ("/start", "/help"):
+        # /start (텔레그램 Start 버튼) + /start2 + /help2 모두 help 표시
+        if cmd in ("/start", "/start2", "/help2"):
             return self._help()
-        if cmd == "/status":
+        if cmd == "/status2":
             return self._status()
-        if cmd == "/summary":
+        if cmd == "/summary2":
             return self._summary()
-        if cmd == "/pause":
+        if cmd == "/pause2":
             self.state.paused = True
             return (
                 "⏸ *봇 일시정지*\n"
                 "새 시그널 발사 안 함. 기존 paper 포지션은 계속 모니터링됨.\n"
-                "재개: `/resume`"
+                "재개: `/resume2`"
             )
-        if cmd == "/resume":
+        if cmd == "/resume2":
             self.state.paused = False
             return "▶ *봇 재개*\n새 시그널 다시 받습니다."
-        if cmd == "/stop":
+        if cmd == "/stop2":
             self.state.shutdown.set()
             return "🛑 *봇 종료 중...*\n잠시 후 작별 메시지 옵니다."
-        return f"알 수 없는 명령: `{cmd}`\n도움말: `/help`"
+        return f"알 수 없는 명령: `{cmd}`\n도움말: `/help2`"
 
     def _help(self) -> str:
         return (
             "*🤖 seocoinbot 명령어*\n"
             "━━━━━━━━━━━━\n"
-            "`/status` — 현재 상태 (가동시간·오픈 포지션)\n"
-            "`/summary` — 누적 통계 (승률·PF)\n"
-            "`/pause` — 새 시그널 일시정지\n"
-            "`/resume` — 시그널 재개\n"
-            "`/stop` — 봇 종료\n"
-            "`/help` — 이 도움말\n"
+            "`/status2` — 현재 상태 (가동시간·오픈 포지션)\n"
+            "`/summary2` — 누적 통계 (승률·PF)\n"
+            "`/pause2` — 새 시그널 일시정지\n"
+            "`/resume2` — 시그널 재개\n"
+            "`/stop2` — 봇 종료\n"
+            "`/help2` — 이 도움말\n"
         )
 
     def _status(self) -> str:
