@@ -36,9 +36,10 @@ class BotState:
 
 
 class CommandRouter:
-    def __init__(self, state: BotState, paper: PaperTrader) -> None:
+    def __init__(self, state: BotState, paper: PaperTrader, handler=None) -> None:
         self.state = state
         self.paper = paper
+        self.handler = handler   # /now2 등 진단용 (지연 주입)
 
     async def handle(self, cmd: str, args: str, sender_chat_id: str) -> str:
         cmd = cmd.lower()
@@ -49,6 +50,8 @@ class CommandRouter:
             return self._status()
         if cmd == "/summary2":
             return self._summary()
+        if cmd == "/now2":
+            return self._now()
         if cmd == "/pause2":
             self.state.paused = True
             return (
@@ -70,11 +73,43 @@ class CommandRouter:
             "━━━━━━━━━━━━\n"
             "`/status2` — 현재 상태 (가동시간·오픈 포지션)\n"
             "`/summary2` — 누적 통계 (승률·PF)\n"
+            "`/now2` — 지금 모니터 중인 심볼들의 펀딩비 top 15\n"
             "`/pause2` — 새 시그널 일시정지\n"
             "`/resume2` — 시그널 재개\n"
             "`/stop2` — 봇 종료\n"
             "`/help2` — 이 도움말\n"
         )
+
+    def _now(self) -> str:
+        """진단용 — 지금 본 펀딩비 top 15. 임계 통과 가까운 코인 확인."""
+        if self.handler is None or not self.handler.last_funding:
+            return (
+                "_(아직 펀딩비 데이터 수집 안 됨 — 봇 시작 직후?)_\n"
+                "잠시 후 다시 시도해주세요."
+            )
+        items = sorted(
+            self.handler.last_funding.items(),
+            key=lambda x: -abs(x[1]),
+        )[:15]
+        from .config import FUNDING_THRESHOLD
+        lines = [
+            "*📡 모니터 심볼 펀딩비 top 15* (절댓값 큰 순)",
+            f"임계: `±{FUNDING_THRESHOLD * 100:.3f}%`",
+            "━━━━━━━━━━━━",
+        ]
+        for sym, f in items:
+            mark = " ⚡" if abs(f) >= FUNDING_THRESHOLD else ""
+            lines.append(f"`{sym:<14}` `{f*100:>+7.4f}%`{mark}")
+        n_above = sum(1 for _, f in self.handler.last_funding.items()
+                      if abs(f) >= FUNDING_THRESHOLD)
+        lines.append("━━━━━━━━━━━━")
+        lines.append(
+            f"전체 `{len(self.handler.last_funding)}` 심볼 중 "
+            f"`{n_above}` 개가 임계 이상"
+        )
+        if n_above == 0:
+            lines.append("_⚠ 임계 통과 코인 없음 → 시간 더 기다리거나 임계 낮춰야_")
+        return "\n".join(lines)
 
     def _status(self) -> str:
         n_open = len(self.paper.open_positions)

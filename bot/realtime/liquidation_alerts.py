@@ -74,6 +74,24 @@ class CascadeDetector:
         # 마지막 발사 시각 (쿨다운)
         self._last_fired: dict[str, dt.datetime] = {}
 
+    def update_symbols(self, new_symbols: Iterable[str]) -> tuple[set[str], set[str]]:
+        """심볼 풀 갱신. (added, removed) 반환."""
+        new_set = set(new_symbols)
+        added = new_set - self.symbols
+        removed = self.symbols - new_set
+        # 새 심볼 빈 deque 초기화
+        for s in added:
+            self._liq_window.setdefault(s, deque())
+            self._price_snaps.setdefault(s, deque())
+        # 제거된 심볼 상태도 정리 (메모리)
+        for s in removed:
+            self._liq_window.pop(s, None)
+            self._price_snaps.pop(s, None)
+            self._last_snap_ts.pop(s, None)
+            self._last_fired.pop(s, None)
+        self.symbols = new_set
+        return added, removed
+
     # ── mark price 입력 (markPrice 스트림에서 호출) ───────
     def on_mark(self, symbol: str, mark: float, ts: dt.datetime) -> None:
         if symbol not in self.symbols:

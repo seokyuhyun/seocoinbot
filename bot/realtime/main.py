@@ -26,6 +26,7 @@ from .config import (
     MAX_CONCURRENT_PAPER,
     PAPER_TIME_STOP_HOURS,
     PAPER_TRADES_CSV,
+    SYMBOL_REFRESH_MINUTES,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHAT_IDS,
     TOP_N_SYMBOLS,
@@ -69,6 +70,35 @@ async def _run_liquidation_stream(handler: SignalHandler, state: BotState) -> No
             log.exception("liquidation handler error: %s", e)
 
 
+async def _refresh_symbols_periodically(handler: SignalHandler, state: BotState) -> None:
+    if SYMBOL_REFRESH_MINUTES <= 0:
+        log.info("심볼 풀 자동 갱신 비활성")
+        return
+    log.info("심볼 풀 자동 갱신: %d분 마다", SYMBOL_REFRESH_MINUTES)
+    while not state.shutdown.is_set():
+        try:
+            await asyncio.wait_for(state.shutdown.wait(),
+                                   timeout=SYMBOL_REFRESH_MINUTES * 60)
+            return  # shutdown
+        except asyncio.TimeoutError:
+            pass
+        try:
+            new_syms = await get_top_usdt_perps(TOP_N_SYMBOLS)
+            added, removed = handler.update_symbols(new_syms)
+            if added or removed:
+                log.info("심볼 갱신: +%d -%d (총 %d)",
+                         len(added), len(removed), len(handler.symbols))
+                if added or removed:
+                    msg = f"🔄 *심볼 풀 갱신*\n+`{len(added)}` / -`{len(removed)}` (총 `{len(handler.symbols)}`)"
+                    if added:
+                        msg += f"\n신규: {', '.join(sorted(added))[:200]}"
+                    if removed:
+                        msg += f"\n제외: {', '.join(sorted(removed))[:200]}"
+                    await tg_send(msg)
+        except Exception as e:
+            log.error("심볼 갱신 실패: %s", e)
+
+
 async def main() -> None:
     if not TELEGRAM_BOT_TOKEN:
         log.error("TELEGRAM_BOT_TOKEN 누락 — .env 확인")
@@ -108,12 +138,13 @@ async def main() -> None:
     )
 
     handler = SignalHandler(symbols, paper, state, FUNDING_THRESHOLD, LEVERAGE)
-    router = CommandRouter(state, paper)
+    router = CommandRouter(state, paper, handler=handler)
 
     tasks = [
         asyncio.create_task(_run_mark_stream(handler, state), name="mark"),
         asyncio.create_task(_run_liquidation_stream(handler, state), name="liq"),
         asyncio.create_task(poll_commands(router, state), name="cmd"),
+        asyncio.create_task(_refresh_symbols_periodically(handler, state), name="refresh"),
     ]
 
     # shutdown event 대기

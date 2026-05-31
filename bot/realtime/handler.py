@@ -47,6 +47,17 @@ class SignalHandler:
         self.leverage = leverage
         self._alerted_funding_period: dict[str, int] = {}
         self.cascade = CascadeDetector(symbols)
+        # 가장 최근 본 펀딩비 (sym -> rate). /now2 진단용
+        self.last_funding: dict[str, float] = {}
+        self.last_mark: dict[str, float] = {}
+
+    def update_symbols(self, new_symbols) -> tuple[set, set]:
+        new_set = set(new_symbols)
+        added = new_set - self.symbols
+        removed = self.symbols - new_set
+        self.symbols = new_set
+        self.cascade.update_symbols(new_symbols)
+        return added, removed
 
     # ── markPrice 스트림 핸들러 ────────────────────────────
     async def on_mark_message(self, msg) -> None:
@@ -82,6 +93,11 @@ class SignalHandler:
 
         # 2) 캐스케이드 detector 에 가격 스냅 공급 (paused 여부 무관)
         self.cascade.on_mark(sym, mark, ts_now)
+
+        # 모니터 심볼 추적 (진단용)
+        if sym in self.symbols:
+            self.last_funding[sym] = funding
+            self.last_mark[sym] = mark
 
         # 3) 새 시그널 — paused 면 발사 안 함
         if self.state.paused:

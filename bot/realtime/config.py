@@ -26,12 +26,14 @@ TELEGRAM_CHAT_IDS: list[str] = [c.strip() for c in _chat_raw.split(",") if c.str
 
 
 # ── 모니터링 범위 ─────────────────────────────────────────
-TOP_N_SYMBOLS = int(os.getenv("REALTIME_TOP_N_SYMBOLS", "30"))
+TOP_N_SYMBOLS = int(os.getenv("REALTIME_TOP_N_SYMBOLS", "100"))
+# 심볼 풀 자동 재선정 주기 (분). 0 = 갱신 안 함.
+SYMBOL_REFRESH_MINUTES = int(os.getenv("REALTIME_SYMBOL_REFRESH_MINUTES", "60"))
 
 
 # ── 펀딩 시그널 설정 ──────────────────────────────────────
 # 임계: |funding rate| 이 이 값 이상이면 알림
-FUNDING_THRESHOLD = float(os.getenv("REALTIME_FUNDING_THRESHOLD", "0.0005"))   # 0.05%
+FUNDING_THRESHOLD = float(os.getenv("REALTIME_FUNDING_THRESHOLD", "0.0002"))   # 0.02%
 
 # 알림 후 중복 방지 — 다음 정산까지는 같은 심볼 재알림 안 함 (코드에서 자동)
 
