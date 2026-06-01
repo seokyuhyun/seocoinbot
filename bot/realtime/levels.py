@@ -100,6 +100,13 @@ def calculate_cascade_levels(
     }
 
 
+_CASCADE_TIER_KR = {
+    "strong": "강함 ($2M+)",
+    "moderate": "보통 ($1~2M)",
+    "weak": "약함 ($500k~$1M)",
+}
+
+
 def format_cascade_signal(
     symbol: str,
     side: Literal["long", "short"],
@@ -112,9 +119,9 @@ def format_cascade_signal(
     price_change_pct: float,
     window_minutes: int,
 ) -> str:
-    """청산 캐스케이드 시그널 메시지."""
+    """청산 캐스케이드 시그널 — 초보자 친화."""
     emoji = "🟢" if side == "long" else "🔴"
-    side_text = "LONG" if side == "long" else "SHORT"
+    side_text = "*매수* (LONG)" if side == "long" else "*매도* (SHORT)"
     pct_sign = 1 if side == "long" else -1
     tp1_disp = f"{pct_sign * levels['tp1_pct'] * 100:+.2f}%"
     tp2_disp = f"{pct_sign * levels['tp2_pct'] * 100:+.2f}%"
@@ -126,22 +133,30 @@ def format_cascade_signal(
     else:
         liq_disp = f"${total_liq_usd / 1000:.0f}k"
 
-    liquidated_label = "롱 청산" if lopsided_side == "long" else "숏 청산"
+    liquidated_kr = "롱(매수)" if lopsided_side == "long" else "숏(매도)"
+    tier_kr = _CASCADE_TIER_KR.get(levels["tier"], levels["tier"])
+    explain = (
+        "매도 압력 끝나면 가격 반등 → 매수 후보"
+        if side == "long"
+        else "매수 압력 끝나면 가격 하락 → 매도 후보"
+    )
 
     return (
-        f"{emoji} *Coin: #{symbol}*\n"
-        f"*{side_text}*  · 청산 캐스케이드 반발\n"
+        f"{emoji} *#{symbol}* — 바이낸스 선물 {side_text}\n"
+        f"🌊 청산 캐스케이드 반발 신호\n"
         f"━━━━━━━━━━━━\n"
-        f"Entry: `{_fmt_price(entry)}`\n"
-        f"Leverage: `{leverage}x` (isolated 권장)\n\n"
-        f"Target 1: `{_fmt_price(levels['tp1'])}` ({tp1_disp})  · 40% 청산\n"
-        f"Target 2: `{_fmt_price(levels['tp2'])}` ({tp2_disp})  · 30% 청산\n"
-        f"Target 3: `{_fmt_price(levels['tp3'])}` ({tp3_disp})  · 30% 청산\n\n"
-        f"StopLoss: `{_fmt_price(levels['sl'])}` ({sl_disp})\n"
+        f"💵 *진입가*: `{_fmt_price(entry)}`\n"
+        f"🔢 레버리지: `{leverage}배` (격리 마진 권장)\n\n"
+        f"🎯 *1차 익절*: `{_fmt_price(levels['tp1'])}` (`{tp1_disp}`) — 40% 청산\n"
+        f"🎯 *2차 익절*: `{_fmt_price(levels['tp2'])}` (`{tp2_disp}`) — 30% 청산\n"
+        f"🎯 *3차 익절*: `{_fmt_price(levels['tp3'])}` (`{tp3_disp}`) — 나머지 30%\n\n"
+        f"🛑 *손절*: `{_fmt_price(levels['sl'])}` (`{sl_disp}`)\n"
         f"━━━━━━━━━━━━\n"
-        f"{window_minutes}분 청산: `{liq_disp}` ({liquidated_label} `{lopsided_pct:.0f}%`)\n"
-        f"가격 변화: `{price_change_pct:+.2f}%`\n"
-        f"강도: `{levels['tier'].upper()}`\n"
+        f"📊 {window_minutes}분 강제청산: `{liq_disp}` "
+        f"({liquidated_kr} `{lopsided_pct:.0f}%` 차지) — {tier_kr}\n"
+        f"📉 가격 변동: `{price_change_pct:+.2f}%`\n"
+        f"   👉 {explain}\n"
+        f"⏰ *8시간* 안에 결판\n"
     )
 
 
