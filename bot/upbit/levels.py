@@ -61,6 +61,7 @@ def format_signal(
     ratio: float,
     cur_vol_krw: float,
     avg_vol_krw: float,
+    pct_5min: float = 0.0,
 ) -> str:
     """텔레그램 시그널 메시지 — 초보자 친화."""
     sym_short = market.replace("KRW-", "")
@@ -81,6 +82,7 @@ def format_signal(
         f"━━━━━━━━━━━━\n"
         f"📊 거래량 폭발: `×{ratio:.1f}` ({tier_kr})\n"
         f"   👉 1분 거래량이 직전 20분 평균보다 `×{ratio:.1f}`\n"
-        f"   👉 갑자기 매수세 몰림 = 가격 위로 갈 가능성\n"
+        f"📈 5분 변동: `{pct_5min:+.2f}%` (상승 추세에서만 발사)\n"
+        f"   👉 강한 양봉 + 5분 가격 안 떨어진 상태 = 진짜 매수세\n"
         f"⏰ *2시간* 안에 결판 (TP/SL 안 닿으면 자동 정리)\n"
     )

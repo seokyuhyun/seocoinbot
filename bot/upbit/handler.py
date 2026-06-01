@@ -66,6 +66,7 @@ class UpbitHandler:
         text = format_signal(
             market=market, entry=entry, levels=levels, ratio=ratio,
             cur_vol_krw=sig["cur_vol_krw"], avg_vol_krw=sig["avg_vol_krw"],
+            pct_5min=sig.get("pct_5min", 0.0),
         )
         if not opened:
             text += "\n_(paper: 이미 보유 또는 동시보유 한도)_"
