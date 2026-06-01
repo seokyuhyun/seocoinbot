@@ -54,6 +54,18 @@ _UPBIT_TIER_KR = {
 }
 
 
+def _pct_5min_label(pct_5min: float) -> tuple[str, str]:
+    """5분 변동 → (이모지, 라벨)"""
+    if pct_5min >= 0.5:
+        return "📈", "상승 추세"
+    if pct_5min >= 0.0:
+        return "➡", "평탄 (약상승)"
+    if pct_5min >= -0.5:
+        return "➡", "평탄 (약하락, 폭락 아님)"
+    # < -0.5% 는 필터에서 차단됐어야 함. 방어용
+    return "📉", "하락 중"
+
+
 def format_signal(
     market: str,
     entry: float,
@@ -66,6 +78,7 @@ def format_signal(
     """텔레그램 시그널 메시지 — 초보자 친화."""
     sym_short = market.replace("KRW-", "")
     tier_kr = _UPBIT_TIER_KR.get(levels["tier"], levels["tier"])
+    pct5_emoji, pct5_label = _pct_5min_label(pct_5min)
     return (
         f"🟢 *#{sym_short}/KRW* — 업비트 현물 *매수* 신호\n"
         f"━━━━━━━━━━━━\n"
@@ -82,7 +95,8 @@ def format_signal(
         f"━━━━━━━━━━━━\n"
         f"📊 거래량 폭발: `×{ratio:.1f}` ({tier_kr})\n"
         f"   👉 1분 거래량이 직전 20분 평균보다 `×{ratio:.1f}`\n"
-        f"📈 5분 변동: `{pct_5min:+.2f}%` (상승 추세에서만 발사)\n"
-        f"   👉 강한 양봉 + 5분 가격 안 떨어진 상태 = 진짜 매수세\n"
+        f"{pct5_emoji} 5분 변동: `{pct_5min:+.2f}%` ({pct5_label})\n"
+        f"   👉 강한 양봉 + 5분 폭락 아님 = 매수세 들어옴\n"
+        f"   _(5분 -0.5% 이상 하락은 자동 차단)_\n"
         f"⏰ *2시간* 안에 결판 (TP/SL 안 닿으면 자동 정리)\n"
     )
