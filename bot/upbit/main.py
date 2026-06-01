@@ -21,6 +21,7 @@ for _s in (sys.stdout, sys.stderr):
 from .commands import BotState, CommandRouter, poll_commands
 from .config import (
     CANDLE_POLL_INTERVAL_SEC,
+    DAILY_SUMMARY_HOURS,
     LEVERAGE,
     LOG_LEVEL,
     MAX_CONCURRENT,
@@ -72,6 +73,48 @@ async def _run_detector(detector: VolumeSpikeDetector, handler: UpbitHandler,
             await handler.on_volume_signal(sig)
 
     await detector.run_periodically(callback)
+
+
+async def _daily_summary_task(paper: PaperTrader, state: BotState) -> None:
+    """N시간마다 누적 통계 텔레그램 전송."""
+    if DAILY_SUMMARY_HOURS <= 0:
+        log.info("Upbit 일일 요약 비활성")
+        return
+    log.info("Upbit 일일 요약: %d시간 마다", DAILY_SUMMARY_HOURS)
+    while not state.shutdown.is_set():
+        try:
+            await asyncio.wait_for(state.shutdown.wait(),
+                                   timeout=DAILY_SUMMARY_HOURS * 3600)
+            return
+        except asyncio.TimeoutError:
+            pass
+        try:
+            s = paper.stats()
+            if s["total"] == 0:
+                text = (
+                    f"📊 *일일 요약 (Upbit)*\n"
+                    f"━━━━━━━━━━━━\n"
+                    f"_(지난 {DAILY_SUMMARY_HOURS}h 거래 없음)_\n"
+                    f"오픈: `{len(paper.open_positions)}` 포지션"
+                )
+            else:
+                pf = "inf" if s["pf"] == float("inf") else f"{s['pf']:.2f}"
+                text = (
+                    f"📊 *일일 요약 (Upbit)*\n"
+                    f"━━━━━━━━━━━━\n"
+                    f"누적 거래: `{s['total']}` "
+                    f"(승 `{s['wins']}` · 패 `{s['losses']}` · BE `{s['breakeven']}`)\n"
+                    f"승률: `{s['win_rate']:.1f}%`\n"
+                    f"평균: `{s['avg_pct']:+.3f}%/거래`\n"
+                    f"PF: `{pf}`\n"
+                    f"누적 수익: `{s['total_pct']:+.2f}%`\n"
+                    f"오픈 중: `{len(paper.open_positions)}` 포지션\n"
+                    f"종료: TP_ALL `{s['tp_all']}` · "
+                    f"SL `{s['sl']}` · TIME `{s['time_stop']}`"
+                )
+            await tg_send(text)
+        except Exception as e:
+            log.error("Upbit 일일 요약 실패: %s", e)
 
 
 async def _refresh_markets_periodically(detector: VolumeSpikeDetector,
@@ -151,6 +194,7 @@ async def main() -> None:
         asyncio.create_task(_run_detector(detector, handler, state), name="detect"),
         asyncio.create_task(poll_commands(router, state), name="cmd"),
         asyncio.create_task(_refresh_markets_periodically(detector, state), name="refresh"),
+        asyncio.create_task(_daily_summary_task(paper, state), name="summary"),
     ]
 
     await state.shutdown.wait()

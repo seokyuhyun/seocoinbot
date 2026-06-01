@@ -56,3 +56,6 @@ LOG_LEVEL = os.getenv("UPBIT_LOG_LEVEL", "INFO").upper()
 
 _paper_dir = Path(__file__).resolve().parent.parent.parent / "data" / "upbit_realtime"
 PAPER_TRADES_CSV = _paper_dir / "paper_trades.csv"
+
+# 일일 요약 전송 주기 (시간). 0 = 비활성.
+DAILY_SUMMARY_HOURS = int(os.getenv("UPBIT_DAILY_SUMMARY_HOURS", "24"))

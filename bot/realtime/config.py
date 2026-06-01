@@ -33,7 +33,7 @@ SYMBOL_REFRESH_MINUTES = int(os.getenv("REALTIME_SYMBOL_REFRESH_MINUTES", "60"))
 
 # ── 펀딩 시그널 설정 ──────────────────────────────────────
 # 임계: |funding rate| 이 이 값 이상이면 알림
-FUNDING_THRESHOLD = float(os.getenv("REALTIME_FUNDING_THRESHOLD", "0.0002"))   # 0.02%
+FUNDING_THRESHOLD = float(os.getenv("REALTIME_FUNDING_THRESHOLD", "0.0005"))   # 0.05%
 
 # 알림 후 중복 방지 — 다음 정산까지는 같은 심볼 재알림 안 함 (코드에서 자동)
 
@@ -46,6 +46,9 @@ PAPER_TIME_STOP_HOURS = int(os.getenv("REALTIME_TIME_STOP_HOURS", "8"))
 # Paper trade 영구 저장 경로
 _paper_dir = Path(__file__).resolve().parent.parent.parent / "data" / "realtime"
 PAPER_TRADES_CSV = _paper_dir / "paper_trades.csv"
+
+# 일일 요약 전송 주기 (시간). 0 = 비활성.
+DAILY_SUMMARY_HOURS = int(os.getenv("REALTIME_DAILY_SUMMARY_HOURS", "24"))
 
 
 # ── 바이낸스 엔드포인트 ───────────────────────────────────

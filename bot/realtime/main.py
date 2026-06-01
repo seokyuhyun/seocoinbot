@@ -20,6 +20,7 @@ for _s in (sys.stdout, sys.stderr):
 from .binance_ws import stream
 from .commands import BotState, CommandRouter, poll_commands
 from .config import (
+    DAILY_SUMMARY_HOURS,
     FUNDING_THRESHOLD,
     LEVERAGE,
     LOG_LEVEL,
@@ -68,6 +69,48 @@ async def _run_liquidation_stream(handler: SignalHandler, state: BotState) -> No
             await handler.on_liquidation_message(msg)
         except Exception as e:
             log.exception("liquidation handler error: %s", e)
+
+
+async def _daily_summary_task(paper: PaperTrader, state: BotState) -> None:
+    """N시간마다 누적 통계 텔레그램 전송. 0 이면 비활성."""
+    if DAILY_SUMMARY_HOURS <= 0:
+        log.info("일일 요약 비활성")
+        return
+    log.info("일일 요약: %d시간 마다", DAILY_SUMMARY_HOURS)
+    while not state.shutdown.is_set():
+        try:
+            await asyncio.wait_for(state.shutdown.wait(),
+                                   timeout=DAILY_SUMMARY_HOURS * 3600)
+            return
+        except asyncio.TimeoutError:
+            pass
+        try:
+            s = paper.stats()
+            if s["total"] == 0:
+                text = (
+                    f"📊 *일일 요약 (Binance)*\n"
+                    f"━━━━━━━━━━━━\n"
+                    f"_(지난 {DAILY_SUMMARY_HOURS}h 거래 없음)_\n"
+                    f"오픈: `{len(paper.open_positions)}` 포지션"
+                )
+            else:
+                pf = "inf" if s["pf"] == float("inf") else f"{s['pf']:.2f}"
+                text = (
+                    f"📊 *일일 요약 (Binance)*\n"
+                    f"━━━━━━━━━━━━\n"
+                    f"누적 거래: `{s['total']}` "
+                    f"(승 `{s['wins']}` · 패 `{s['losses']}` · BE `{s['breakeven']}`)\n"
+                    f"승률: `{s['win_rate']:.1f}%`\n"
+                    f"평균: `{s['avg_pct']:+.3f}%/거래`\n"
+                    f"PF: `{pf}`\n"
+                    f"누적 수익: `{s['total_pct']:+.2f}%`\n"
+                    f"오픈 중: `{len(paper.open_positions)}` 포지션\n"
+                    f"종료: TP_ALL `{s['tp_all']}` · "
+                    f"SL `{s['sl']}` · TIME `{s['time_stop']}`"
+                )
+            await tg_send(text)
+        except Exception as e:
+            log.error("일일 요약 전송 실패: %s", e)
 
 
 async def _refresh_symbols_periodically(handler: SignalHandler, state: BotState) -> None:
@@ -145,6 +188,7 @@ async def main() -> None:
         asyncio.create_task(_run_liquidation_stream(handler, state), name="liq"),
         asyncio.create_task(poll_commands(router, state), name="cmd"),
         asyncio.create_task(_refresh_symbols_periodically(handler, state), name="refresh"),
+        asyncio.create_task(_daily_summary_task(paper, state), name="summary"),
     ]
 
     # shutdown event 대기
