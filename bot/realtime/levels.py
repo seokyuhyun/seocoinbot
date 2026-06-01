@@ -23,15 +23,17 @@ def calculate_levels(
       tp1_pct, tp2_pct, tp3_pct, sl_pct: 진입 대비 비율 (양수)
       tier: "strong" | "moderate" | "weak"
     """
+    # SL 은 5배 레버리지 가정 시 -1.2% → 계좌 -6% 라 그대로 유지.
+    # 큰 펌프 (5%+) 잡으려고 TP3 만 폭 넓힘.
     abs_f = abs(funding)
     if abs_f >= 0.0010:           # >= 0.10%
-        tp1p, tp2p, tp3p, slp = 0.010, 0.020, 0.040, 0.012
+        tp1p, tp2p, tp3p, slp = 0.015, 0.030, 0.060, 0.012
         tier = "strong"
     elif abs_f >= 0.0007:         # 0.07 ~ 0.10%
-        tp1p, tp2p, tp3p, slp = 0.008, 0.015, 0.030, 0.010
+        tp1p, tp2p, tp3p, slp = 0.010, 0.020, 0.045, 0.010
         tier = "moderate"
     else:                          # 0.05 ~ 0.07%
-        tp1p, tp2p, tp3p, slp = 0.006, 0.012, 0.025, 0.008
+        tp1p, tp2p, tp3p, slp = 0.007, 0.015, 0.035, 0.008
         tier = "weak"
 
     if side == "long":
@@ -72,14 +74,15 @@ def calculate_cascade_levels(
 
     캐스케이드 반발은 펀딩 spike 보다 빠르고 작은 폭 (5~30분) — TP/SL 모두 타이트.
     """
+    # 캐스케이드 반발은 빠른 회복 (5~30분). TP1/2 는 빠른 익절, TP3 만 큰 반등 잡음.
     if total_liq_usd >= 2_000_000:        # $2M+ 강한 캐스케이드
-        tp1p, tp2p, tp3p, slp = 0.010, 0.020, 0.040, 0.010
+        tp1p, tp2p, tp3p, slp = 0.015, 0.030, 0.060, 0.010
         tier = "strong"
     elif total_liq_usd >= 1_000_000:      # $1M~$2M 중간
-        tp1p, tp2p, tp3p, slp = 0.007, 0.015, 0.030, 0.009
+        tp1p, tp2p, tp3p, slp = 0.010, 0.020, 0.040, 0.009
         tier = "moderate"
     else:                                  # $500k~$1M 약한
-        tp1p, tp2p, tp3p, slp = 0.005, 0.010, 0.020, 0.008
+        tp1p, tp2p, tp3p, slp = 0.007, 0.015, 0.030, 0.008
         tier = "weak"
 
     if side == "long":

@@ -6,15 +6,20 @@ TP_FRACTIONS: tuple[float, float, float] = (0.40, 0.30, 0.30)
 
 
 def calculate_volume_spike_levels(entry: float, ratio: float) -> dict:
-    """거래량 spike 강도에 따라 TP/SL 산출. 현물 = LONG only."""
+    """거래량 spike 강도에 따라 TP/SL 산출. 현물 = LONG only.
+
+    Upbit 현물은 한국 retail 펌프가 보통 5~15% 까지 가는 게 흔함.
+    선물처럼 짧게 잡으면 거래비용 (round-trip ~0.1%) 도 못 이김.
+    그래서 Binance 선물보다 훨씬 넓게 설정.
+    """
     if ratio >= 10.0:
-        tp1p, tp2p, tp3p, slp = 0.015, 0.030, 0.060, 0.020
+        tp1p, tp2p, tp3p, slp = 0.040, 0.080, 0.150, 0.030
         tier = "extreme"
     elif ratio >= 5.0:
-        tp1p, tp2p, tp3p, slp = 0.010, 0.020, 0.040, 0.015
+        tp1p, tp2p, tp3p, slp = 0.025, 0.050, 0.100, 0.025
         tier = "strong"
     else:  # 3 ~ 5x
-        tp1p, tp2p, tp3p, slp = 0.008, 0.015, 0.025, 0.012
+        tp1p, tp2p, tp3p, slp = 0.015, 0.030, 0.060, 0.020
         tier = "moderate"
 
     return {
@@ -98,5 +103,5 @@ def format_signal(
         f"{pct5_emoji} 5분 변동: `{pct_5min:+.2f}%` ({pct5_label})\n"
         f"   👉 강한 양봉 + 5분 폭락 아님 = 매수세 들어옴\n"
         f"   _(5분 -0.5% 이상 하락은 자동 차단)_\n"
-        f"⏰ *2시간* 안에 결판 (TP/SL 안 닿으면 자동 정리)\n"
+        f"⏰ *6시간* 안에 결판 (TP/SL 안 닿으면 자동 정리)\n"
     )

@@ -42,8 +42,8 @@ COOLDOWN_MINUTES = int(os.getenv("UPBIT_COOLDOWN_MINUTES", "30"))
 # 현물 = 레버리지 1 고정
 LEVERAGE = 1
 MAX_CONCURRENT = int(os.getenv("UPBIT_MAX_CONCURRENT", "5"))
-# 시간 손절 (시간) — Upbit 빠른 거래라 2시간이면 충분
-TIME_STOP_HOURS = int(os.getenv("UPBIT_TIME_STOP_HOURS", "2"))
+# 시간 손절 (시간) — 큰 펌프 잡기 위해 6h. 너무 짧으면 TP2/3 못 잡음
+TIME_STOP_HOURS = int(os.getenv("UPBIT_TIME_STOP_HOURS", "6"))
 
 
 # ── Upbit 엔드포인트 ──────────────────────────────────────
