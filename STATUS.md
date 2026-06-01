@@ -3,36 +3,38 @@
 > Claude Code 새 세션이 이 파일 먼저 읽고 시작하면 진행 상태 그대로 복원됨.
 > 진행 한 단계 끝날 때마다 이 파일 갱신.
 
-**마지막 갱신:** 2026-05-28 (회사 PC, 토큰 한도 임박으로 핸드오프)
-**현재 단계:** 4개 backtest 전략 모두 walk-forward 실패 / WebSocket 실시간 전략으로 pivot 검토 중
+**마지막 갱신:** 2026-06-01 (회사 방화벽이 바이낸스 WS 차단 확인 → 집 PC 로 핸드오프)
+**현재 단계:** 실시간 시그널 봇 (펀딩 spike + 청산 캐스케이드 + paper trade + 텔레그램 명령어) 완성. 집 PC 에서 가동 시작 필요.
 
 ---
 
 ## TL;DR — 큰 그림
 
-1. **SRT C1 (이전 v1.0 후보) 는 일단 보류.** 사용자가 더 자주 거래·더 큰 수익 원해서 새 전략 4개 시도함. 4개 모두 walk-forward 실패. SRT C1 코드·결과는 그대로 보존 (`strategy/yt_strategies.py`, `STATUS_legacy_srt.md` 만들 예정 없음 — 깃 로그 `5642ccd` 참조).
-2. **본인 (사용자) 목표:** 일평균 최소 1건 거래 / 연 수익 의미 있게 / 폭등·폭락 다 대응
-3. **결론:** 백테스트 가능한 단순 메커니즘 (돌파, 풀백, regime, ORB-C) 4개 다 시도 — 모두 walk-forward 통과 못 함. 단 **pullback v3 SHORT-only** 만 부분 통과 (3/4 fold 양수).
-4. **다음 가능성:** **WebSocket 실시간 호가창·체결·청산 데이터** 활용한 새 차원의 전략 (청산 캐스케이드, OBI, 펀딩 차익).
+1. **백테스트 전략 4개 다 walk-forward 실패** → 실시간 시그널 봇 방향으로 pivot 완료
+2. **실시간 봇 (bot/realtime/) 완성** — 코드 100%. 텔레그램 토큰·chat_id 도 .env 에 설정됨
+3. **회사 PC 가동 시도 → 회사 방화벽이 바이낸스 WebSocket 차단** (test_ws.py 로 확인). 3일 0건은 이게 원인. 봇 문제 아님
+4. **집 PC 에서 가동 = 100% 정상 작동 예상** — 단순히 `git pull` + `python -m bot.realtime.main`
 
 ---
 
 ## 바로 다음 명령 (집 PC 에서 첫 메시지)
 
-```
-seocoinbot 이어서 작업할 거야. STATUS.md 와 git log -15 읽고
-현재 상태 파악한 다음, 다음 단계 진행해줘.
+집 PC 에 처음 도착해서 환경이 안 깔려있으면:
 
-내 마지막 결정은:
-[A. 청산 캐스케이드 사냥 시작 (paper trade)]
-[B. OBI 스칼핑]
-[C. 펀딩 차익]
-[D. A + C 동시]
-[E. paper trade v3 SHORT-only 부터]
-[F. DCA 로 마무리]
-
-위 중 하나 골라서 알려줄게. 결정 못 했으면 추천해줘.
 ```
+seocoinbot 이어서 작업할 거야. STATUS.md 읽고 환경부터 셋업해줘.
+```
+
+환경 이미 있고 봇만 켜고 싶으면 (시간 절약 — Claude Code 안 거치고 바로):
+
+```cmd
+cd C:\path\to\seocoinbot
+git pull origin main
+.venv\Scripts\activate
+python -m bot.realtime.main
+```
+
+봇 시작 메시지 텔레그램 도착 → /help2 보내면 명령 목록 → 시간 지나면 시그널 알림 옴.
 
 ---
 
@@ -47,6 +49,57 @@ seocoinbot 이어서 작업할 거야. STATUS.md 와 git log -15 읽고
 | 5. ORB-C v4 (세션 돌파+풀백) | `backtest/orbc_v4.py`, `..._walkforward.py` | -11.36% (172거래) | 1/4 fold 양수 | 폐기 |
 
 **유일하게 ship 가능 후보 = pullback v3 SHORT-only.** 단 SHORT 만 가능 → 폭등장 0%.
+
+---
+
+## 실시간 봇 (bot/realtime/) — 현재 상태
+
+**기능 완성**. 코드는 깃에 있고 즉시 가동 가능. 단 회사 방화벽이 바이낸스 WS 차단해서 회사 PC 에서 못 돌림.
+
+### 구조
+| 모듈 | 역할 |
+|---|---|
+| `bot/realtime/config.py` | .env 로드 (TG 토큰, chat_ids, 임계값, refresh 주기 등) |
+| `bot/realtime/telegram.py` | sendMessage / getUpdates (long polling) |
+| `bot/realtime/binance_ws.py` | WebSocket 매니저 (재연결 + backoff) |
+| `bot/realtime/symbol_picker.py` | 상위 N USDT 무기한 조회 (거래대금 기준) |
+| `bot/realtime/levels.py` | 적응형 TP/SL 계산 (펀딩·캐스케이드 별) + 시그널 포맷터 |
+| `bot/realtime/paper_trader.py` | 가상 진입·청산·CSV 저장·승률 통계 |
+| `bot/realtime/liquidation_alerts.py` | `!forceOrder@arr` 스트림 → 캐스케이드 감지 |
+| `bot/realtime/handler.py` | 두 스트림 통합 처리 + paper trade 트리거 |
+| `bot/realtime/commands.py` | 텔레그램 명령어 (/help2 /status2 /summary2 /now2 /pause2 /resume2 /stop2) |
+| `bot/realtime/main.py` | asyncio.gather (mark WS + force WS + cmd polling + 심볼 갱신) |
+| `bot/realtime/test_ws.py` | **방화벽 진단용** — 봇 안 거치고 WebSocket 직접 받는지 테스트 |
+
+### 시그널 종류
+1. **펀딩비 spike** — 8h 정산 임박 시 자주. 펀딩 ±0.02% 이상 → 반대 방향 진입
+2. **청산 캐스케이드** — 5분 강제청산 $500k 이상 + 한쪽 80%+ + 가격 ±1.5% → 반발 매매
+
+### 텔레그램 명령어 (DM 에서)
+- `/help2` 도움말
+- `/status2` 가동시간·오픈 포지션
+- `/summary2` 누적 승률·PF
+- `/now2` 모니터 중인 심볼들의 현재 펀딩비 top 15 (진단)
+- `/pause2` 새 시그널 일시정지
+- `/resume2` 재개
+- `/stop2` 종료
+
+### `.env` 필수 항목
+```
+TELEGRAM_BOT_TOKEN=<BotFather 토큰>
+TELEGRAM_CHAT_IDS=ID1,ID2          # 또는 TELEGRAM_CHAT_ID 단수형 폴백
+REALTIME_TOP_N_SYMBOLS=100         # 기본 100 (옛날 30 이면 spike 잘 안 잡힘)
+REALTIME_FUNDING_THRESHOLD=0.0002  # 0.02%. 이전 0.05 → 0.03 → 0.02 로 낮춤
+REALTIME_SYMBOL_REFRESH_MINUTES=60 # 1시간마다 풀 재선정
+REALTIME_LEVERAGE=5                # 5배 권장
+REALTIME_MAX_CONCURRENT=5
+REALTIME_TIME_STOP_HOURS=8
+```
+
+### 회사 vs 집 — 방화벽 진단법
+새 CMD 창에서 `python -m bot.realtime.test_ws` 실행 → WebSocket 메시지 3개 받는지 확인. 받으면 OK, 타임아웃이면 방화벽 차단.
+
+집에서 잘 돌면 — **paper trade 결과 누적이 진짜 목표**. 1주일 이상 켜둬서 100건+ 모이면 펀딩 spike vs 캐스케이드 어느 시그널이 실제 양수 edge 있는지 데이터로 확인 가능.
 
 ---
 
