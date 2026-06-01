@@ -145,6 +145,13 @@ def format_cascade_signal(
     )
 
 
+_FUNDING_TIER_KR = {
+    "strong": "강함 (0.10%+)",
+    "moderate": "보통 (0.07~0.10%)",
+    "weak": "약함 (0.05~0.07%)",
+}
+
+
 def format_signal(
     symbol: str,
     side: Literal["long", "short"],
@@ -154,31 +161,35 @@ def format_signal(
     funding: float,
     minutes_to_funding: int,
 ) -> str:
-    """텔레그램 시그널 메시지 (사용자 요청 포맷)."""
+    """펀딩 spike 시그널 — 초보자 친화."""
     emoji = "🟢" if side == "long" else "🔴"
-    side_text = "LONG" if side == "long" else "SHORT"
+    side_text = "*매수* (LONG)" if side == "long" else "*매도* (SHORT)"
     pct_sign = 1 if side == "long" else -1
-    # TP pct 표기: side 에 따라 부호 결정 (long=+, short=-)
     tp1_disp = f"{pct_sign * levels['tp1_pct'] * 100:+.2f}%"
     tp2_disp = f"{pct_sign * levels['tp2_pct'] * 100:+.2f}%"
     tp3_disp = f"{pct_sign * levels['tp3_pct'] * 100:+.2f}%"
     sl_disp = f"{-pct_sign * levels['sl_pct'] * 100:+.2f}%"
 
     hours, minutes = divmod(max(0, minutes_to_funding), 60)
-    funding_reason = "롱 과열 → 숏" if funding > 0 else "숏 과열 → 롱"
+    tier_kr = _FUNDING_TIER_KR.get(levels["tier"], levels["tier"])
+    explain = (
+        "롱(매수)이 너무 많아 과열 상태\n   👉 곧 풀릴 가능성 → *매도(SHORT)* 진입 후보"
+        if funding > 0 else
+        "숏(매도)이 너무 많아 과열 상태\n   👉 곧 풀릴 가능성 → *매수(LONG)* 진입 후보"
+    )
 
     return (
-        f"{emoji} *Coin: #{symbol}*\n"
-        f"*{side_text}*\n"
+        f"{emoji} *#{symbol}* — 바이낸스 선물 {side_text}\n"
+        f"📈 펀딩비 spike 신호\n"
         f"━━━━━━━━━━━━\n"
-        f"Entry: `{_fmt_price(entry)}`\n"
-        f"Leverage: `{leverage}x` (isolated 권장)\n\n"
-        f"Target 1: `{_fmt_price(levels['tp1'])}` ({tp1_disp})  · 40% 청산\n"
-        f"Target 2: `{_fmt_price(levels['tp2'])}` ({tp2_disp})  · 30% 청산\n"
-        f"Target 3: `{_fmt_price(levels['tp3'])}` ({tp3_disp})  · 30% 청산\n\n"
-        f"StopLoss: `{_fmt_price(levels['sl'])}` ({sl_disp})\n"
+        f"💵 *진입가*: `{_fmt_price(entry)}`\n"
+        f"🔢 레버리지: `{leverage}배` (격리 마진 권장)\n\n"
+        f"🎯 *1차 익절*: `{_fmt_price(levels['tp1'])}` (`{tp1_disp}`) — 40% 청산\n"
+        f"🎯 *2차 익절*: `{_fmt_price(levels['tp2'])}` (`{tp2_disp}`) — 30% 청산\n"
+        f"🎯 *3차 익절*: `{_fmt_price(levels['tp3'])}` (`{tp3_disp}`) — 나머지 30%\n\n"
+        f"🛑 *손절*: `{_fmt_price(levels['sl'])}` (`{sl_disp}`)\n"
         f"━━━━━━━━━━━━\n"
-        f"펀딩비: `{funding * 100:+.4f}%` ({funding_reason})\n"
-        f"다음 정산: `{hours}h {minutes}m`\n"
-        f"강도: `{levels['tier'].upper()}`\n"
+        f"📊 펀딩비: `{funding * 100:+.4f}%` ({tier_kr})\n"
+        f"   👉 {explain}\n"
+        f"⏰ 다음 펀딩 정산: `{hours}h {minutes}m` 안에 결판\n"
     )

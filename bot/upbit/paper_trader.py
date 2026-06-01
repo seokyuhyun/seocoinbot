@@ -258,30 +258,46 @@ class _HistStub:
     close_reason: str
 
 
+_REASON_KR_UPBIT = {
+    "TP_ALL": ("🟢🟢🟢", "모든 익절 성공", "🎉 1·2·3차 다 익절"),
+    "SL": ("🔴", "손절", "😔 손절가 도달"),
+    "TIME_STOP": ("⏱", "시간 만료", "😐 2시간 안에 안 끝남 — 현재가 정리"),
+}
+
+
 def format_close_alert(pos: PaperPosition, reason: str, stats: dict) -> str:
-    emoji_map = {"TP_ALL": "🟢🟢🟢", "SL": "🔴", "TIME_STOP": "⏱"}
-    emoji = emoji_map.get(reason, "ℹ️")
+    """청산 알림 — 초보자 친화."""
+    emoji, reason_kr, result_kr = _REASON_KR_UPBIT.get(
+        reason, ("ℹ️", reason, reason)
+    )
     sym_short = pos.market.replace("KRW-", "")
     duration = pos.close_time - pos.entry_time
     h, rem = divmod(int(duration.total_seconds()), 3600)
     m = rem // 60
     pct = pos.realized_pct * 100
-    pct_emoji = "📈" if pct > 0 else ("📉" if pct < 0 else "➡")
+    pct_label = "수익" if pct > 0 else ("손실" if pct < 0 else "본전")
     pf_str = "inf" if stats["pf"] == float("inf") else f"{stats['pf']:.2f}"
+    tp_breakdown = (
+        f"1차 {'✓' if pos.tps_hit[0] else '✗'} "
+        f"2차 {'✓' if pos.tps_hit[1] else '✗'} "
+        f"3차 {'✓' if pos.tps_hit[2] else '✗'}"
+    )
     return (
-        f"{emoji} *PAPER 청산 — {reason}* (Upbit)\n"
-        f"#{sym_short}/KRW LONG\n"
+        f"{emoji} *가상매매 청산 — {reason_kr}* (Upbit 현물)\n"
+        f"#{sym_short}/KRW 매수 청산\n"
         f"━━━━━━━━━━━━\n"
-        f"진입: `{_fmt_krw(pos.entry_price)}`\n"
-        f"청산 사유: `{reason}`\n"
-        f"실현: {pct_emoji} `{pct:+.2f}%`\n"
-        f"보유: `{h}h {m}m`\n"
-        f"TP: `{int(pos.tps_hit[0])}/{int(pos.tps_hit[1])}/{int(pos.tps_hit[2])}`\n"
-        f"━━ 누적 통계 ━━\n"
-        f"거래: `{stats['total']}` (승 `{stats['wins']}` · 패 `{stats['losses']}`)\n"
+        f"💵 진입가: `{_fmt_krw(pos.entry_price)}`\n"
+        f"{result_kr}\n"
+        f"💰 결과: `{pct:+.2f}%` {pct_label}\n"
+        f"⏰ 보유 시간: `{h}h {m}m`\n"
+        f"🎯 익절 도달: {tp_breakdown}\n"
+        f"━━ 지금까지 통계 ━━\n"
+        f"총 거래: `{stats['total']}`건 "
+        f"(승 `{stats['wins']}` · 패 `{stats['losses']}` · 본전 `{stats['breakeven']}`)\n"
         f"승률: `{stats['win_rate']:.1f}%`\n"
-        f"평균: `{stats['avg_pct']:+.3f}%/거래`\n"
-        f"PF: `{pf_str}`\n"
-        f"누적 수익: `{stats['total_pct']:+.2f}%`\n"
-        f"TP_ALL/SL/TIME: `{stats['tp_all']}/{stats['sl']}/{stats['time_stop']}`\n"
+        f"평균 수익: `{stats['avg_pct']:+.3f}%` / 거래\n"
+        f"손익비 (PF): `{pf_str}`  _(1 이상이면 양수 edge)_\n"
+        f"누적 수익률: `{stats['total_pct']:+.2f}%`\n"
+        f"청산 사유: 완전익절 `{stats['tp_all']}` · "
+        f"손절 `{stats['sl']}` · 시간만료 `{stats['time_stop']}`\n"
     )

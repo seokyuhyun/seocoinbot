@@ -327,34 +327,52 @@ class _HistoricalStub:
 # Telegram 알림 포맷 (청산 시)
 # ────────────────────────────────────────────────────────────
 
+_REASON_KR_BINANCE = {
+    "TP_ALL":      ("🟢🟢🟢", "모든 익절 성공",       "🎉 1·2·3차 다 익절"),
+    "SL":          ("🔴",     "손절",                  "😔 손절가 도달"),
+    "BE_STOP":     ("⚪",     "본절 청산",             "😐 1차 익절 후 본전 청산 (가격 되돌아옴)"),
+    "TIME_STOP":   ("⏱",     "시간 만료",             "😐 8시간 안에 안 끝남 — 현재가 정리"),
+    "LIQUIDATED":  ("💥",     "강제청산",              "💀 청산가 도달 — 마진 전손"),
+    "FORCED_FINAL": ("ℹ️",     "테스트 종료 청산",      "🔚 봇 테스트 끝 — 강제 정리"),
+}
+
+
 def format_close_alert(pos: PaperPosition, reason: str, stats: dict) -> str:
-    emoji_map = {"TP_ALL": "🟢🟢🟢", "SL": "🔴", "TIME_STOP": "⏱"}
-    emoji = emoji_map.get(reason, "ℹ️")
-    side_text = "LONG" if pos.side == "long" else "SHORT"
+    """청산 알림 — 초보자 친화."""
+    emoji, reason_kr, result_kr = _REASON_KR_BINANCE.get(
+        reason, ("ℹ️", reason, reason)
+    )
+    side_text = "매수(LONG)" if pos.side == "long" else "매도(SHORT)"
 
     duration = pos.close_time - pos.entry_time
     hours, rem = divmod(int(duration.total_seconds()), 3600)
     minutes = rem // 60
 
     pct = pos.realized_pct * 100
-    pct_emoji = "📈" if pct > 0 else ("📉" if pct < 0 else "➡")
-
+    pct_label = "수익" if pct > 0 else ("손실" if pct < 0 else "본전")
     pf_str = "inf" if stats["pf"] == float("inf") else f"{stats['pf']:.2f}"
+    tp_breakdown = (
+        f"1차 {'✓' if pos.tps_hit[0] else '✗'} "
+        f"2차 {'✓' if pos.tps_hit[1] else '✗'} "
+        f"3차 {'✓' if pos.tps_hit[2] else '✗'}"
+    )
 
     return (
-        f"{emoji} *PAPER 청산 — {reason}*\n"
-        f"#{pos.symbol} {side_text} {pos.leverage}x\n"
+        f"{emoji} *가상매매 청산 — {reason_kr}* (Binance 선물)\n"
+        f"#{pos.symbol} {side_text} {pos.leverage}배 청산\n"
         f"━━━━━━━━━━━━\n"
-        f"진입: `{_fmt_price(pos.entry_price)}`\n"
-        f"청산 사유: `{reason}`\n"
-        f"실현: {pct_emoji} `{pct:+.2f}%`\n"
-        f"보유: `{hours}h {minutes}m`\n"
-        f"TP: `{int(pos.tps_hit[0])}/{int(pos.tps_hit[1])}/{int(pos.tps_hit[2])}`\n"
-        f"━━ 누적 통계 ━━\n"
-        f"거래: `{stats['total']}` (승 `{stats['wins']}` · 패 `{stats['losses']}`)\n"
+        f"💵 진입가: `{_fmt_price(pos.entry_price)}`\n"
+        f"{result_kr}\n"
+        f"💰 결과: `{pct:+.2f}%` {pct_label}\n"
+        f"⏰ 보유 시간: `{hours}h {minutes}m`\n"
+        f"🎯 익절 도달: {tp_breakdown}\n"
+        f"━━ 지금까지 통계 ━━\n"
+        f"총 거래: `{stats['total']}`건 "
+        f"(승 `{stats['wins']}` · 패 `{stats['losses']}` · 본전 `{stats['breakeven']}`)\n"
         f"승률: `{stats['win_rate']:.1f}%`\n"
-        f"평균: `{stats['avg_pct']:+.3f}%/거래`\n"
-        f"PF: `{pf_str}`\n"
-        f"누적 수익: `{stats['total_pct']:+.2f}%`\n"
-        f"TP_ALL/SL/TIME: `{stats['tp_all']}/{stats['sl']}/{stats['time_stop']}`\n"
+        f"평균 수익: `{stats['avg_pct']:+.3f}%` / 거래\n"
+        f"손익비 (PF): `{pf_str}`  _(1 이상이면 양수 edge)_\n"
+        f"누적 수익률: `{stats['total_pct']:+.2f}%`\n"
+        f"청산 사유: 완전익절 `{stats['tp_all']}` · "
+        f"손절 `{stats['sl']}` · 시간만료 `{stats['time_stop']}`\n"
     )

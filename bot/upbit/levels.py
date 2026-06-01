@@ -47,6 +47,13 @@ def _fmt_vol_krw(v: float) -> str:
     return f"{v/1e3:.0f}k원"
 
 
+_UPBIT_TIER_KR = {
+    "extreme": "🔥 매우 강함 (×10배 이상)",
+    "strong": "강함 (×5~10배)",
+    "moderate": "보통 (×3~5배)",
+}
+
+
 def format_signal(
     market: str,
     entry: float,
@@ -55,25 +62,25 @@ def format_signal(
     cur_vol_krw: float,
     avg_vol_krw: float,
 ) -> str:
-    """텔레그램 시그널 메시지."""
+    """텔레그램 시그널 메시지 — 초보자 친화."""
     sym_short = market.replace("KRW-", "")
+    tier_kr = _UPBIT_TIER_KR.get(levels["tier"], levels["tier"])
     return (
-        f"🟢 *Coin: #{sym_short}/KRW* (Upbit)\n"
-        f"*LONG* · 거래량 spike (현물)\n"
+        f"🟢 *#{sym_short}/KRW* — 업비트 현물 *매수* 신호\n"
         f"━━━━━━━━━━━━\n"
-        f"Entry: `{_fmt_krw(entry)}`\n"
-        f"Leverage: `1x` (현물)\n\n"
-        f"Target 1: `{_fmt_krw(levels['tp1'])}` "
-        f"(+{levels['tp1_pct']*100:.2f}%)  · 40% 익절\n"
-        f"Target 2: `{_fmt_krw(levels['tp2'])}` "
-        f"(+{levels['tp2_pct']*100:.2f}%)  · 30% 익절\n"
-        f"Target 3: `{_fmt_krw(levels['tp3'])}` "
-        f"(+{levels['tp3_pct']*100:.2f}%)  · 30% 익절\n\n"
-        f"StopLoss: `{_fmt_krw(levels['sl'])}` "
-        f"(-{levels['sl_pct']*100:.2f}%)\n"
+        f"💵 *진입가*: `{_fmt_krw(entry)}`\n"
+        f"🔢 레버리지: `1배` (현물 거래)\n\n"
+        f"🎯 *1차 익절*: `{_fmt_krw(levels['tp1'])}` "
+        f"(`+{levels['tp1_pct']*100:.2f}%`) — 40% 매도\n"
+        f"🎯 *2차 익절*: `{_fmt_krw(levels['tp2'])}` "
+        f"(`+{levels['tp2_pct']*100:.2f}%`) — 30% 매도\n"
+        f"🎯 *3차 익절*: `{_fmt_krw(levels['tp3'])}` "
+        f"(`+{levels['tp3_pct']*100:.2f}%`) — 나머지 30% 매도\n\n"
+        f"🛑 *손절*: `{_fmt_krw(levels['sl'])}` "
+        f"(`-{levels['sl_pct']*100:.2f}%`)\n"
         f"━━━━━━━━━━━━\n"
-        f"1분 거래량: `{_fmt_vol_krw(cur_vol_krw)}`\n"
-        f"평균 (20분): `{_fmt_vol_krw(avg_vol_krw)}`\n"
-        f"배수: `×{ratio:.1f}`\n"
-        f"강도: `{levels['tier'].upper()}`\n"
+        f"📊 거래량 폭발: `×{ratio:.1f}` ({tier_kr})\n"
+        f"   👉 1분 거래량이 직전 20분 평균보다 `×{ratio:.1f}`\n"
+        f"   👉 갑자기 매수세 몰림 = 가격 위로 갈 가능성\n"
+        f"⏰ *2시간* 안에 결판 (TP/SL 안 닿으면 자동 정리)\n"
     )
