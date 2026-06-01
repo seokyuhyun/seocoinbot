@@ -73,12 +73,16 @@ class VolumeSpikeDetector:
         return signals
 
     async def _check_market(self, market: str) -> dict | None:
-        # 5분 전 가격 비교를 위해 추가로 5봉 더 가져옴
-        candles = await get_minute_candles(market, count=self.avg_minutes + 6)
-        if len(candles) < self.avg_minutes + 1:
+        # candles[0]=현재 진행 중 (불안정), candles[1]=직전 완료
+        # 판단은 마감된 캔들 (candles[1]) 로. 진입가는 실시간 (candles[0])
+        # 필요: 1 current + 1 completed + 20 prior + 5 추가 = 27
+        candles = await get_minute_candles(market, count=self.avg_minutes + 7)
+        if len(candles) < self.avg_minutes + 2:
             return None
-        cur = candles[0]
-        prior = candles[1: self.avg_minutes + 1]
+
+        forming = candles[0]              # 현재 형성 중 — 진입가만 사용
+        cur = candles[1]                  # 마지막 완료된 1분 — 분석 기준
+        prior = candles[2: self.avg_minutes + 2]   # 그 이전 20분
 
         try:
             cur_vol_krw = float(cur.get("candle_acc_trade_price", 0))
@@ -91,6 +95,14 @@ class VolumeSpikeDetector:
 
         if cur_close <= 0:
             return None
+
+        # 실시간 진입가 (현재 시점 mark)
+        try:
+            entry_price = float(forming.get("trade_price", cur_close))
+        except (TypeError, ValueError):
+            entry_price = cur_close
+        if entry_price <= 0:
+            entry_price = cur_close
 
         prior_vols = []
         for c in prior:
@@ -109,13 +121,11 @@ class VolumeSpikeDetector:
         if ratio < self.spike_mult:
             return None
 
-        # ── 방향 필터 1: 강한 양봉만 인정 ────────────────
-        # 음봉이거나 약한 양봉 (위꼬리 큰) = 매수 신호 아님
+        # ── 방향 필터 1: 마감된 캔들이 강한 양봉 ────────────
         candle_range = cur_high - cur_low
         if candle_range <= 0:
             return None
         body_ratio = abs(cur_close - cur_open) / candle_range
-        # 종가가 캔들 범위 어디에 위치하나 (0=저점, 1=고점)
         close_pos = (cur_close - cur_low) / candle_range
         is_strong_bull = (
             cur_close > cur_open       # 양봉
@@ -123,24 +133,31 @@ class VolumeSpikeDetector:
             and body_ratio >= 0.3      # 몸통이 범위의 30% 이상
         )
         if not is_strong_bull:
-            log.debug("[%s] spike ×%.1f BUT 약한 양봉/음봉 → 스킵 "
+            log.debug("[%s] spike ×%.1f BUT 마감캔들 약한 양봉/음봉 → 스킵 "
                       "(body=%.2f, close_pos=%.2f)",
                       market, ratio, body_ratio, close_pos)
             return None
 
         # ── 방향 필터 2: 5분간 하락 중이면 무시 ────────────
-        # 폭락 중 거래량 폭발 = 떨어지는 칼날. 매수하면 더 손실
+        # 마감된 캔들 기준 5분 전 종가 = candles[6] (1분 후 + 5분 전)
         pct_5min = 0.0
-        if len(candles) >= 6:
+        if len(candles) >= 7:
             try:
-                price_5min_ago = float(candles[5].get("trade_price", cur_close))
+                price_5min_ago = float(candles[6].get("trade_price", cur_close))
             except (TypeError, ValueError):
                 price_5min_ago = cur_close
             if price_5min_ago > 0:
                 pct_5min = (cur_close - price_5min_ago) / price_5min_ago
-        if pct_5min < -0.005:    # -0.5% 이상 하락
+        if pct_5min < -0.005:
             log.debug("[%s] spike ×%.1f BUT 5분 하락 %.2f%% → 스킵",
                       market, ratio, pct_5min * 100)
+            return None
+
+        # ── 방향 필터 3: 진입 직전 실시간 가격이 마감가보다 크게 빠졌으면 무시 ──
+        # 마감 시점 ₩1000 인데 polling 직전 ₩980 (-2%) 이면 현재 음봉으로 뒤집힘 중
+        if entry_price < cur_close * 0.995:    # -0.5% 이상 후퇴
+            log.debug("[%s] 마감캔들 양봉 BUT 현재가 %.2f%% 하락 중 → 스킵",
+                      market, (entry_price - cur_close) / cur_close * 100)
             return None
 
         # 쿨다운
@@ -152,7 +169,8 @@ class VolumeSpikeDetector:
 
         return {
             "market": market,
-            "trade_price": cur_close,
+            "trade_price": entry_price,        # 실시간 진입가
+            "close_1m": cur_close,             # 분석 기준 마감가 (참고)
             "open_price": cur_open,
             "is_bullish": True,
             "body_ratio": body_ratio,
